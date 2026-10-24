@@ -244,6 +244,31 @@ void test_config_json_legacy_and_bad_types() {
   TEST_ASSERT_EQUAL_UINT16(60000, c.blePollIntervalMs);
 }
 
+void test_config_validation_hostname() {
+  AppConfig c;
+  copyStr(c.hostname, sizeof(c.hostname), " My Stove_ESP.1 ");
+  int fixes = validateConfig(c, nullptr, 0);
+  TEST_ASSERT_TRUE(fixes >= 1);
+  TEST_ASSERT_EQUAL_STRING("my-stove-esp-1", c.hostname);
+  copyStr(c.hostname, sizeof(c.hostname), "--@@--");
+  validateConfig(c, nullptr, 0);
+  TEST_ASSERT_EQUAL_STRING("edilkaminble", c.hostname);
+  copyStr(c.hostname, sizeof(c.hostname), "edilkamin-a1b2c3");
+  TEST_ASSERT_EQUAL_INT(0, validateConfig(c, nullptr, 0));
+  // identity bookkeeping and feature flags round-trip through JSON
+  AppConfig a;
+  copyStr(a.haPublishedId, sizeof(a.haPublishedId), "322707E4");
+  copyStr(a.haPublishedPrefix, sizeof(a.haPublishedPrefix), "edilkamin");
+  a.featRelax = false;
+  JsonDocument doc;
+  configToJson(a, doc.to<JsonObject>(), ConfigSecrets::Omit);
+  AppConfig b;
+  configFromJson(doc.as<JsonObjectConst>(), b, false);
+  TEST_ASSERT_EQUAL_STRING("322707E4", b.haPublishedId);
+  TEST_ASSERT_FALSE(b.featRelax);
+  TEST_ASSERT_TRUE(b.featStandby);
+}
+
 void test_config_validation_admin_fields() {
   AppConfig c;
   copyStr(c.adminUser, sizeof(c.adminUser), " ad:min ");
@@ -273,6 +298,7 @@ int main(int, char **) {
   RUN_TEST(test_auth_throttle);
   RUN_TEST(test_config_json_roundtrip_and_secrets);
   RUN_TEST(test_config_json_legacy_and_bad_types);
+  RUN_TEST(test_config_validation_hostname);
   RUN_TEST(test_config_validation_admin_fields);
   return UNITY_END();
 }

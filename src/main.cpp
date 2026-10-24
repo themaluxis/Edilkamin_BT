@@ -37,7 +37,7 @@
 using namespace edk;
 
 static const char *kTag = "MAIN";
-static const char *kHostname = "edilkaminble";
+static const char *kHwVersion = "Wemos D1 Mini ESP32";
 static const uint32_t kTempLogLevelMs = 30UL * 60UL * 1000UL; // DEBUG/TRACE auto-revert
 
 // ---------------------------------------------------------------------------
@@ -253,6 +253,10 @@ static void publishObservable(const StoveState &s, Observable what,
     break;
   case Observable::Power:
   case Observable::Automatic:
+    if (s.power.known) {
+      snprintf(num, sizeof(num), "P%u", (unsigned)s.power.value);
+      pubState("power", num, true, force);
+    }
     if (s.automatic.known)
       pubState("automatic_mode", s.automatic.value ? "ON" : "OFF", true, force);
     if (s.automatic.known && s.automatic.value)
@@ -398,7 +402,15 @@ public:
 };
 
 static Events events;
-static StoveController controller(ble, events);
+static StoveProfile g_profile; // generic profile adjusted by feat_* settings
+static StoveController controller(ble, events, g_profile);
+
+static void applyProfileFromConfig() {
+  g_profile = defaultProfile();
+  g_profile.hasRelax = cfg.featRelax;
+  g_profile.hasStandby = cfg.featStandby;
+  g_profile.hasChrono = cfg.featChrono;
+}
 
 // ---------------------------------------------------------------------------
 // BLE callbacks
@@ -433,6 +445,44 @@ static void onBleState(BleState state, void *) {
 }
 
 // ---------------------------------------------------------------------------
+// Home Assistant discovery (identity, enrichment, clean-up)
+// ---------------------------------------------------------------------------
+static void publishDiscoveryNow() {
+  static char espMac[18];
+  static char configUrl[40];
+  copyStr(espMac, sizeof(espMac), WiFi.macAddress().c_str());
+  if (cfg.webEnabled)
+    snprintf(configUrl, sizeof(configUrl), "http://%s/", WiFi.localIP().toString().c_str());
+  else
+    configUrl[0] = '\0';
+  DiscoveryContext dc;
+  dc.topics = &topics;
+  dc.profile = &g_profile;
+  dc.fwVersion = FW_VERSION;
+  dc.stoveMac = ble.foundMac()[0] ? ble.foundMac() : cfg.stoveMac;
+  dc.espMac = espMac;
+  dc.configUrl = configUrl;
+  dc.hwVersion = kHwVersion;
+  publishDiscovery(mqtt, dc);
+}
+
+// Called on every MQTT connection: when topic_prefix/device_id changed since
+// the last publication, the old identity is wiped from Home Assistant first.
+static void syncDiscoveryIdentity() {
+  bool known = cfg.haPublishedId[0] != '\0';
+  bool changed = known && (strcmp(cfg.haPublishedId, cfg.deviceId) != 0 ||
+                           strcmp(cfg.haPublishedPrefix, cfg.topicPrefix) != 0);
+  if (changed)
+    removeDiscovery(mqtt, cfg.haPublishedPrefix, cfg.haPublishedId);
+  publishDiscoveryNow();
+  if (!known || changed) {
+    copyStr(cfg.haPublishedId, sizeof(cfg.haPublishedId), cfg.deviceId);
+    copyStr(cfg.haPublishedPrefix, sizeof(cfg.haPublishedPrefix), cfg.topicPrefix);
+    store.save(cfg);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Web administration hooks
 // ---------------------------------------------------------------------------
 static WebAdmin::Hooks webHooks();
@@ -443,7 +493,7 @@ static void startWebAdmin() {
   web.setOta(&ota);
   web.begin(cfg, store, webHooks(), FW_VERSION);
   if (!mdnsActive) {
-    mdnsActive = MDNS.begin(kHostname);
+    mdnsActive = MDNS.begin(cfg.hostname);
     if (mdnsActive)
       MDNS.addService("http", "tcp", 80);
     else
@@ -526,7 +576,7 @@ static size_t webStatusJson(char *buf, size_t n, void *) {
   w["rssi"] = WiFi.RSSI();
   w["channel"] = WiFi.channel();
   w["mac"] = WiFi.macAddress();
-  w["hostname"] = kHostname;
+  w["hostname"] = cfg.hostname;
 
   JsonObject m = doc["mqtt"].to<JsonObject>();
   m["connected"] = mqtt.connected();
@@ -612,7 +662,11 @@ static bool webApplyConfig(const AppConfig &next, bool &restartRequired,
       next.bleReconnectInitialS != cur.bleReconnectInitialS ||
       next.bleReconnectMaxS != cur.bleReconnectMaxS ||
       next.bleScanTimeoutS != cur.bleScanTimeoutS ||
-      next.telnetEnabled != cur.telnetEnabled;
+      next.telnetEnabled != cur.telnetEnabled ||
+      strcmp(next.hostname, cur.hostname) != 0;
+  bool featuresChanged = next.featRelax != cur.featRelax ||
+                         next.featStandby != cur.featStandby ||
+                         next.featChrono != cur.featChrono;
 
   // live changes
   if (next.bleEnabled != cur.bleEnabled) {
@@ -634,6 +688,13 @@ static bool webApplyConfig(const AppConfig &next, bool &restartRequired,
   }
   if (next.webEnabled != cur.webEnabled)
     pubRaw("web_admin/state", next.webEnabled ? "ON" : "OFF", true, true);
+  if (featuresChanged) {
+    g_profile.hasRelax = next.featRelax;
+    g_profile.hasStandby = next.featStandby;
+    g_profile.hasChrono = next.featChrono;
+    if (mqtt.connected())
+      publishDiscoveryNow(); // adds or removes the switches immediately
+  }
   return true;
 }
 
@@ -697,12 +758,7 @@ static void onMqttMessage(const char *topic, const char *payload, void *) {
   if (strcmp(topic, "homeassistant/status") == 0) {
     if (strcmp(payload, "online") == 0) {
       EDK_LOGI(kTag, "Home Assistant came online, republishing");
-      DiscoveryContext dc;
-      dc.topics = &topics;
-      dc.profile = &defaultProfile();
-      dc.fwVersion = FW_VERSION;
-      dc.stoveMac = ble.foundMac()[0] ? ble.foundMac() : cfg.stoveMac;
-      publishDiscovery(mqtt, dc);
+      publishDiscoveryNow();
       publishAllStates(true);
       publishDiagnostics(true);
     }
@@ -742,6 +798,13 @@ static void onMqttMessage(const char *topic, const char *payload, void *) {
     logger().dump(dumpLogLine, nullptr);
     return;
   }
+  if (strcmp(entity, "discovery_republish") == 0) {
+    EDK_LOGI(kTag, "discovery republish requested");
+    publishDiscoveryNow();
+    publishAllStates(true);
+    publishDiagnostics(true);
+    return;
+  }
   if (strcmp(entity, "diagnostics_reset") == 0) {
     ble.policy().resetStats();
     controller.resetStats();
@@ -761,12 +824,7 @@ static void onMqttMessage(const char *topic, const char *payload, void *) {
 }
 
 static void onMqttConnected(void *) {
-  DiscoveryContext dc;
-  dc.topics = &topics;
-  dc.profile = &defaultProfile();
-  dc.fwVersion = FW_VERSION;
-  dc.stoveMac = ble.foundMac()[0] ? ble.foundMac() : cfg.stoveMac;
-  publishDiscovery(mqtt, dc);
+  syncDiscoveryIdentity();
   publishAllStates(true);
   publishDiagnostics(true);
 }
@@ -815,6 +873,15 @@ static void loadConfig() {
   }
   bool migrated = false;
   bool found = store.load(cfg, migrated);
+  if (!found) {
+    // Fresh module: derive the Home Assistant identity from the ESP32 MAC so
+    // several modules never collide. Upgraded modules keep their stored id.
+    uint64_t mac = ESP.getEfuseMac();
+    snprintf(cfg.deviceId, sizeof(cfg.deviceId), "%02X%02X%02X",
+             (unsigned)((mac >> 24) & 0xFF), (unsigned)((mac >> 32) & 0xFF),
+             (unsigned)((mac >> 40) & 0xFF));
+    EDK_LOGI(kTag, "no configuration file: device id %s", cfg.deviceId);
+  }
   char notes[192];
   int fixes = validateConfig(cfg, notes, sizeof(notes));
   if (fixes > 0)
@@ -861,7 +928,7 @@ static void runWifiManager() {
   wm.addParameter(&pSession);
   wm.addParameter(&pPause);
   wm.addParameter(&pAdmin);
-  wm.setHostname(kHostname);
+  wm.setHostname(cfg.hostname);
   wm.setTitle("Edilkamin_BT configuration");
   wm.setConfigPortalTimeout(180);
   wm.setConnectTimeout(30);
@@ -935,7 +1002,8 @@ static void setupMqtt() {
   static const char *const commandEntities[] = {
       "hvac_mode", "fan_mode", "preset_mode", "target_temperature", "relax",
       "automatic_mode", "chrono_mode", "standby", "bluetooth", "log_level",
-      "log_dump", "diagnostics_reset", "restart", "web_admin"};
+      "log_dump", "diagnostics_reset", "restart", "web_admin", "power",
+      "discovery_republish"};
   char t[96];
   for (const char *e : commandEntities)
     mqtt.addSubscription(topics.set(t, sizeof(t), e), true);
@@ -969,9 +1037,10 @@ void setup() {
   loadConfig();
   logger().setLevel((LogLevel)cfg.logLevel);
   topics.configure(cfg.topicPrefix, cfg.deviceId);
+  applyProfileFromConfig();
   ota.begin();
 
-  WiFi.setHostname(kHostname);
+  WiFi.setHostname(cfg.hostname);
   runWifiManager();
   WiFi.setAutoReconnect(true);
   setupTime();

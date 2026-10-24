@@ -89,6 +89,22 @@ void test_user_commands() {
   TEST_ASSERT_EQUAL(CommandType::SetAutomatic, c.type);
   TEST_ASSERT_EQUAL_HEX16(0x0101, c.value);
 
+  // power select entity: P1..P5 or bare digit, keeps the current fan level
+  TEST_ASSERT_TRUE(buildUserCommand("power", "P4", st, p, 1, c, reason, sizeof(reason)));
+  TEST_ASSERT_EQUAL(CommandType::SetFanPower, c.type);
+  TEST_ASSERT_EQUAL_HEX16(0x0204, c.value);
+  TEST_ASSERT_TRUE(buildUserCommand("power", "1", st, p, 1, c, reason, sizeof(reason)));
+  TEST_ASSERT_EQUAL_HEX16(0x0201, c.value);
+  TEST_ASSERT_FALSE(buildUserCommand("power", "P6", st, p, 1, c, reason, sizeof(reason)));
+  TEST_ASSERT_FALSE(buildUserCommand("power", "P0", st, p, 1, c, reason, sizeof(reason)));
+  TEST_ASSERT_FALSE(buildUserCommand("power", "P12", st, p, 1, c, reason, sizeof(reason)));
+  TEST_ASSERT_FALSE(buildUserCommand("power", "Auto", st, p, 1, c, reason, sizeof(reason)));
+  {
+    StoveState unknownFan;
+    TEST_ASSERT_FALSE(buildUserCommand("power", "P2", unknownFan, p, 1, c, reason, sizeof(reason)));
+    TEST_ASSERT_NOT_NULL(strstr(reason, "fan level"));
+  }
+
   TEST_ASSERT_TRUE(buildUserCommand("automatic_mode", "OFF", st, p, 1, c, reason, sizeof(reason)));
   TEST_ASSERT_EQUAL_HEX16(0x0001, c.value);
   TEST_ASSERT_TRUE(buildUserCommand("relax", "ON", st, p, 1, c, reason, sizeof(reason)));

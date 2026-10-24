@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — v1.5 "Home Assistant" (HA02/HA03 of the Enhanced spec)
+
+### Added
+- Stable identity: fresh modules get a `device_id` derived from the ESP32 MAC; upgraded modules keep their stored id. Changing `device_id` or `topic_prefix` wipes the previous identity from Home Assistant (discovery documents and retained states) on the next MQTT connection (`ha_published_prefix` / `ha_published_id` bookkeeping).
+- Device document: `configuration_url` (web page), `connections` (ESP32 MAC, stove Bluetooth address), `hw_version`.
+- *Power* select entity (`power/set` P1–P5, `power/state`) next to the climate presets.
+- Per-module stove features `feat_relax`, `feat_standby`, `feat_chrono`: the switch is removed from Home Assistant and the command refused when off; applied live from the web page.
+- Clean-up of obsolete discovery documents (v0.x *AirKare* switch, disabled feature switches); *Republish discovery* button (`discovery_republish/set`).
+- Configurable `hostname` (mDNS); schema v4; tests for the power entity and hostname normalisation (65 in total).
+
 ## Unreleased — v1.4 "OTA" (F06 of the Enhanced spec)
 
 ### Added

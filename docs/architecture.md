@@ -25,7 +25,7 @@ src/
                BleManager      NimBLE glue (scan, connect, GATT, notify)     [esp32]
   mqtt/        Topics          topic builder/parser                          [pure]
                MqttManager     PubSubClient wrapper: LWT, backoff, de-dup    [esp32]
-               Discovery       Home Assistant discovery documents            [esp32]
+               Discovery       HA discovery documents, identity clean-up     [esp32]
   logging/     Logger          levels, ring buffer, sinks, auto-revert       [pure]
   config/      AppConfig       schema v3 + validation                        [pure]
                ConfigJson      config <-> JSON, secret policy (export/import) [pure]

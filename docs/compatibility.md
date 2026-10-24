@@ -8,9 +8,12 @@
 ## Capability profile
 
 `src/stove/StoveProfile.h` holds the single *generic* profile used today:
-target 15.0–30.0 °C in 0.5 steps, power P1–P5, fan 20–100 % + Auto, relax,
-standby and chrono exposed; fan 2/3 and AirKare not exposed. Per-model
-profiles (F08) will select entities and ranges per stove.
+target 15.0–30.0 °C in 0.5 steps, power P1–P5, fan 20–100 % + Auto; fan 2/3
+and AirKare not exposed. Relax, standby and chrono can be switched off per
+module (`feat_relax`, `feat_standby`, `feat_chrono`, web page → *Stove
+features*): the Home Assistant entity is removed and the command refused, so
+a stove without the function never shows a dead switch. Per-model profiles
+(F08) will extend this to ranges and the extra fans.
 
 ## Register notes (validated on the Slide2)
 

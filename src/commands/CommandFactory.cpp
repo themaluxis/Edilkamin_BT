@@ -189,6 +189,21 @@ bool buildUserCommand(const char *entity, const char *payload,
       setPdu(out, true, reg::FanPower,
              (uint16_t)((state.fan1.value << 8) | power));
     }
+  } else if (strcmp(entity, "power") == 0) {
+    // "P1".."P5" (select entity) or "1".."5"
+    out.type = CommandType::SetFanPower;
+    const char *q = pl;
+    if (*q == 'P' || *q == 'p')
+      q++;
+    if (q[0] < '1' || q[0] > '9' || q[1] != '\0')
+      return reject(reason, reasonLen, "power must be P1..P5");
+    uint8_t power = (uint8_t)(q[0] - '0');
+    if (power > profile.powerLevels)
+      return reject(reason, reasonLen, "power level not supported by profile");
+    if (!state.fan1.known || state.fan1.value == 0)
+      return reject(reason, reasonLen, "fan level not yet known from stove");
+    setPdu(out, true, reg::FanPower,
+           (uint16_t)((state.fan1.value << 8) | power));
   } else if (strcmp(entity, "automatic_mode") == 0) {
     out.type = CommandType::SetAutomatic;
     bool on;

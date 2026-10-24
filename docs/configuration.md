@@ -1,12 +1,13 @@
 # Configuration
 
-Configuration lives in `/config.json` on the LittleFS partition (schema 3).
+Configuration lives in `/config.json` on the LittleFS partition (schema 4).
 The captive portal (`Edilkamin_BT_AP`) edits the common fields; **every** key
 can be edited from the local web page (`http://edilkaminble.local/`, see
 [web-ui.md](web-ui.md)), which also exports and imports the file.
 
-Files written by v0.x (schema 1) and v1.1 (schema 2) are read and migrated
-automatically; nothing has to be re-entered after an upgrade.
+Files written by v0.x (schema 1), v1.1 (schema 2) and v1.3 (schema 3) are
+read and migrated automatically; nothing has to be re-entered after an
+upgrade.
 
 ## Captive portal fields
 
@@ -35,7 +36,7 @@ POSIX TZ string daylight saving time is handled automatically.
 
 | Key | Type | Default | Range / notes |
 |-----|------|---------|---------------|
-| `schema` | int | 3 | written by the firmware |
+| `schema` | int | 4 | written by the firmware |
 | `mqtt_server` | string | | ≤ 63 chars |
 | `mqtt_port` | int | 1883 | 1–65535 |
 | `mqtt_user`, `mqtt_pass` | string | | ≤ 47 / 63 chars |
@@ -43,7 +44,10 @@ POSIX TZ string daylight saving time is handled automatically.
 | `tz` | string | | POSIX TZ |
 | `ntp_offset` | int | 7200 | seconds, used only when `tz` is empty |
 | `topic_prefix` | string | `edilkamin` | no `/`, `#`, `+` |
-| `device_id` | string | `322707E4` | keep it to preserve HA entity ids |
+| `device_id` | string | `322707E4` (upgrades) / MAC-derived (fresh) | keep it to preserve HA entity ids; changing it moves the device in HA and wipes the old identity automatically |
+| `hostname` | string | `edilkaminble` | mDNS name, `a-z 0-9 -`, 1–31 chars |
+| `ha_published_prefix`, `ha_published_id` | string | | bookkeeping: identity last published to HA; do not edit |
+| `feat_relax`, `feat_standby`, `feat_chrono` | bool | true | expose the switch in HA (off = removed, command refused); applied live |
 | `stove_mac` | string | | `AA:BB:CC:DD:EE:FF`, empty = auto |
 | `ble_enabled` | bool | true | also changed by `bluetooth/set` |
 | `ble_session_s` | int | 30 | 10–3600 |

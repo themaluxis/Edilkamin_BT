@@ -66,3 +66,15 @@ lines. A successful build is not a hardware pass for this scenario.
 | O6 | Power cut during the upload | old firmware boots; next upload succeeds |
 | O7 | Upload while a BLE session is active | transfer completes; session resumes or restarts after; no command lost or duplicated |
 | O8 | WebFlash the v1.4 manifest on a module currently booting `app1` | boots `app0`, configuration kept |
+
+## Home Assistant identity (v1.5)
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| H1 | Upgrade a v1.4 module | same entity ids as before, new *Power* select and *Republish discovery* button, the v0.x *AirKare* switch disappears, device page shows *Visit* (configuration_url) and the two MAC connections |
+| H2 | Fresh module (erase flash) | device id = last 3 bytes of the MAC, topics under `edilkamin/<id>/`, single device in HA |
+| H3 | Change `device_id` on the page, restart | old entities and retained states gone within seconds of the MQTT connection, new device complete; `ha_published_id` updated |
+| H4 | Turn *Relax switch* off | `switch.*relax*` removed from HA immediately; `relax/set ON` answers `REJECTED relax not supported by profile`; turning it on brings the entity back |
+| H5 | Select P3 in *Power* | `power/set P3` → `VERIFIED`, `power/state P3`, climate preset shows `Man. P3` |
+| H6 | Delete the device in HA, press *Republish discovery* | device recreated with every entity and current states |
+| H7 | Change hostname to `stove-salon` | after restart `http://stove-salon.local/` answers, status page shows the name |

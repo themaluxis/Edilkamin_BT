@@ -10,6 +10,49 @@ static char g_payload[1800];
 static char g_topic[96];
 static char g_tmp[8][96];
 
+// Every (component, object suffix) this firmware ever published under an
+// identity, plus legacy v0.x objects, so an identity can be wiped completely.
+struct DiscoveryObject {
+  const char *component;
+  const char *suffix; // "" = the device-level object (climate)
+};
+static const DiscoveryObject kObjects[] = {
+    {"climate", ""},
+    {"switch", "automatic_mode"}, {"switch", "relax"}, {"switch", "chrono_mode"},
+    {"switch", "standby"}, {"switch", "airkare"} /* v0.x */,
+    {"sensor", "status"}, {"sensor", "thermocouple_temp"}, {"sensor", "pellet_level"},
+    {"sensor", "room_temperature"}, {"select", "power"},
+    {"switch", "bluetooth"}, {"switch", "web_admin"},
+    {"binary_sensor", "ble_connected"}, {"binary_sensor", "data_valid"},
+    {"sensor", "ble_state"}, {"sensor", "last_update"}, {"sensor", "wifi_rssi"},
+    {"sensor", "last_error"}, {"sensor", "firmware"}, {"sensor", "uptime"},
+    {"sensor", "free_heap"}, {"sensor", "boot_count"}, {"sensor", "reset_reason"},
+    {"sensor", "queue_depth"}, {"sensor", "ble_connect_attempts"},
+    {"sensor", "ble_disconnects"}, {"sensor", "requests_ok"},
+    {"sensor", "requests_failed"}, {"select", "log_level"},
+    {"button", "restart"}, {"button", "log_dump"}, {"button", "diagnostics_reset"},
+    {"button", "discovery_republish"},
+};
+// Retained state topics owned by an identity.
+static const char *const kStateTopics[] = {
+    "availability/state", "data_valid/state", "ble/state", "ble/connected",
+    "bluetooth/state", "web_admin/state", "log_level/state", "last_update/state",
+    "diagnostics/state", "temperature/state", "target_temperature/state",
+    "thermocouple_temperature/state", "status/state", "hvac_mode/state",
+    "hvac_action/state", "fan_mode/state", "preset_mode/state", "power/state",
+    "automatic_mode/state", "relax/state", "standby/state", "chrono_mode/state",
+    "pellet_level/state",
+};
+
+static void discoveryTopic(char *out, size_t n, const char *component,
+                           const char *deviceId, const char *suffix) {
+  if (suffix && *suffix)
+    snprintf(out, n, "homeassistant/%s/edilkamin_%s_%s/config", component,
+             deviceId, suffix);
+  else
+    snprintf(out, n, "homeassistant/%s/edilkamin_%s/config", component, deviceId);
+}
+
 namespace {
 
 struct Builder {
@@ -29,11 +72,31 @@ struct Builder {
     dev["manufacturer"] = "Edilkamin";
     dev["model"] = "The Mind pellet stove";
     dev["sw_version"] = ctx.fwVersion;
-    if (ctx.stoveMac && ctx.stoveMac[0]) {
-      JsonArray c = dev["connections"].to<JsonArray>().add<JsonArray>();
-      c.add("bluetooth");
-      c.add(ctx.stoveMac);
+    if (ctx.hwVersion && ctx.hwVersion[0])
+      dev["hw_version"] = ctx.hwVersion;
+    if (ctx.configUrl && ctx.configUrl[0])
+      dev["configuration_url"] = ctx.configUrl;
+    bool anyConn = (ctx.stoveMac && ctx.stoveMac[0]) || (ctx.espMac && ctx.espMac[0]);
+    if (anyConn) {
+      JsonArray conns = dev["connections"].to<JsonArray>();
+      if (ctx.espMac && ctx.espMac[0]) {
+        JsonArray c = conns.add<JsonArray>();
+        c.add("mac");
+        c.add(ctx.espMac);
+      }
+      if (ctx.stoveMac && ctx.stoveMac[0]) {
+        JsonArray c = conns.add<JsonArray>();
+        c.add("bluetooth");
+        c.add(ctx.stoveMac);
+      }
     }
+  }
+
+  // Empty retained payload: Home Assistant deletes the entity.
+  void remove(const char *component, const char *objectSuffix) {
+    discoveryTopic(g_topic, sizeof(g_topic), component, ctx.topics->deviceId(),
+                   objectSuffix);
+    mqtt.publish(g_topic, "", true, false);
   }
 
   // availability: ESP online (+ stove data fresh for stove entities)
@@ -66,12 +129,8 @@ struct Builder {
   }
 
   void send(JsonDocument &doc, const char *component, const char *objectSuffix) {
-    if (objectSuffix && *objectSuffix)
-      snprintf(g_topic, sizeof(g_topic), "homeassistant/%s/edilkamin_%s_%s/config",
-               component, ctx.topics->deviceId(), objectSuffix);
-    else
-      snprintf(g_topic, sizeof(g_topic), "homeassistant/%s/edilkamin_%s/config",
-               component, ctx.topics->deviceId());
+    discoveryTopic(g_topic, sizeof(g_topic), component, ctx.topics->deviceId(),
+                   objectSuffix);
     size_t n = serializeJson(doc, g_payload, sizeof(g_payload));
     if (n == 0 || n >= sizeof(g_payload) - 1) {
       EDK_LOGE(kTag, "discovery payload too large for %s", g_topic);
@@ -222,12 +281,21 @@ struct Builder {
     climate();
     // v0.x entities (same object ids / unique ids)
     stoveSwitch("Automatic Mode", "automatic_mode", "automatic_mode", "mdi:refresh-auto");
+    // model-dependent switches: published when enabled, removed otherwise
     if (ctx.profile->hasRelax)
       stoveSwitch("Relax", "relax", "relax", "mdi:volume-off");
+    else
+      remove("switch", "relax");
     if (ctx.profile->hasChrono)
       stoveSwitch("Chrono", "chrono_mode", "chrono_mode", "mdi:clock-outline");
+    else
+      remove("switch", "chrono_mode");
     if (ctx.profile->hasStandby)
       stoveSwitch("Standby", "standby", "standby", "mdi:sleep");
+    else
+      remove("switch", "standby");
+    if (!ctx.profile->hasAirKare)
+      remove("switch", "airkare"); // published by v0.x, never functional here
     stoveSensor("Status", "status", "status", "status", "mdi:state-machine", nullptr, nullptr, nullptr);
     stoveSensor("Exhaust Temperature", "thermocouple_temperature", "thermocouple_temperature",
                 "thermocouple_temp", nullptr, "temperature", "°C", "measurement");
@@ -235,6 +303,21 @@ struct Builder {
     // new stove entities
     stoveSensor("Room Temperature", "temperature", "room_temperature", "room_temperature",
                 nullptr, "temperature", "°C", "measurement");
+    // power level as its own select (HA03), in addition to the climate presets
+    {
+      JsonDocument doc;
+      common(doc, "Power", "power", true, false, nullptr);
+      doc["icon"] = "mdi:fire";
+      doc["command_topic"] = t(2, "power/set");
+      doc["state_topic"] = t(3, "power/state");
+      JsonArray opts = doc["options"].to<JsonArray>();
+      char lbl[4];
+      for (uint8_t i = 1; i <= ctx.profile->powerLevels && i <= 9; i++) {
+        snprintf(lbl, sizeof(lbl), "P%u", i);
+        opts.add(lbl);
+      }
+      send(doc, "select", "power");
+    }
     // bluetooth enable switch (ESP setting, works even when the stove is away)
     {
       JsonDocument doc;
@@ -285,6 +368,7 @@ struct Builder {
     button("Restart ESP32", "restart", nullptr, "restart/set", "RESTART", "restart", "config");
     button("Dump logs to MQTT", "log_dump", "mdi:text-long", "log_dump/set", "DUMP", nullptr, "diagnostic");
     button("Reset counters", "diagnostics_reset", "mdi:counter", "diagnostics_reset/set", "RESET", nullptr, "diagnostic");
+    button("Republish discovery", "discovery_republish", "mdi:home-assistant", "discovery_republish/set", "PUBLISH", nullptr, "config");
   }
 };
 
@@ -295,6 +379,25 @@ int publishDiscovery(MqttManager &mqtt, const DiscoveryContext &ctx) {
   b.all();
   EDK_LOGI(kTag, "published %d discovery documents", b.published);
   return b.published;
+}
+
+int removeDiscovery(MqttManager &mqtt, const char *prefix, const char *deviceId) {
+  int sent = 0;
+  for (const DiscoveryObject &o : kObjects) {
+    discoveryTopic(g_topic, sizeof(g_topic), o.component, deviceId, o.suffix);
+    if (mqtt.publish(g_topic, "", true, true))
+      sent++;
+  }
+  Topics old;
+  old.configure(prefix, deviceId);
+  for (const char *suffix : kStateTopics) {
+    old.make(g_topic, sizeof(g_topic), suffix);
+    if (mqtt.publish(g_topic, "", true, true))
+      sent++;
+  }
+  EDK_LOGW(kTag, "removed Home Assistant identity %s/%s (%d topics cleared)",
+           prefix, deviceId, sent);
+  return sent;
 }
 
 } // namespace edk

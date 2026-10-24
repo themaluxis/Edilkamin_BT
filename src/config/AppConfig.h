@@ -1,4 +1,4 @@
-// Persistent configuration (schema v3) with validation. Pure struct; the
+// Persistent configuration (schema v4) with validation. Pure struct; the
 // LittleFS/JSON persistence lives in ConfigStore (platform layer).
 #pragma once
 #include <cstddef>
@@ -7,7 +7,7 @@
 namespace edk {
 
 struct AppConfig {
-  static constexpr uint8_t kSchemaVersion = 3;
+  static constexpr uint8_t kSchemaVersion = 4;
   uint8_t schemaVersion = kSchemaVersion;
 
   // network
@@ -21,7 +21,19 @@ struct AppConfig {
 
   // identity / topics
   char topicPrefix[16] = "edilkamin";
+  // Upgraded installs keep the historical id; fresh installs get an id
+  // derived from the ESP32 MAC (set by main when no config file exists).
   char deviceId[16] = "322707E4";
+  char hostname[32] = "edilkaminble"; // mDNS name (<hostname>.local)
+  // Identity under which Home Assistant discovery was last published; when
+  // it differs from topic_prefix/device_id the old documents are removed.
+  char haPublishedPrefix[16] = "";
+  char haPublishedId[16] = "";
+
+  // stove features exposed to Home Assistant (model dependent, HA03)
+  bool featRelax = true;
+  bool featStandby = true;
+  bool featChrono = true;
 
   // bluetooth
   char stoveMac[18] = "";       // "" = first stove advertising the service
@@ -60,6 +72,7 @@ int validateConfig(AppConfig &cfg, char *notes = nullptr, size_t notesLen = 0);
 
 bool isValidMac(const char *mac);          // "AA:BB:CC:DD:EE:FF"
 bool isHex32(const char *s);               // 32 hex digits (MD5)
+bool normalizeHostname(char *name, size_t len); // lowercase [a-z0-9-], 1..31
 bool normalizeMac(char *mac, size_t len);  // uppercase, validates
 
 } // namespace edk

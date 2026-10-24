@@ -1,8 +1,32 @@
 # MQTT API
 
-All topics live under `<topic_prefix>/<device_id>/` (default
-`edilkamin/322707E4/`). Topic names and Home Assistant `unique_id`s of the
-v0.x firmware are unchanged, so upgraded devices keep their entity ids.
+All topics live under `<topic_prefix>/<device_id>/`. Topic names and Home
+Assistant `unique_id`s of the v0.x firmware are unchanged, so upgraded devices
+keep their entity ids.
+
+## Device identity
+
+| Situation | `device_id` |
+|-----------|-------------|
+| Upgraded from v0.x–v1.4 (a `config.json` exists) | kept as stored, historically `322707E4` |
+| Fresh module (no configuration file, or after a factory reset) | last three bytes of the ESP32 MAC, e.g. `A1B2C3`, so several modules never collide |
+
+`device_id` and `topic_prefix` can be changed from the web page (restart
+required). On the next MQTT connection the firmware deletes every discovery
+document and retained state topic of the previous identity, then publishes
+the new ones, so Home Assistant shows one device and no orphans. The last
+published identity is remembered in `ha_published_prefix` / `ha_published_id`.
+Entity history in Home Assistant is tied to the `unique_id`, so changing the
+id starts new entities; keep the historical id if you want continuity.
+
+The device document carries `identifiers: [device_id]`, `connections`
+(ESP32 MAC and, once known, the stove's Bluetooth address),
+`configuration_url` (the web page), `sw_version` and `hw_version`.
+
+Obsolete documents are cleaned automatically: the v0.x `airkare` switch is
+removed at every start (unless a profile enables AirKare), and switches
+disabled with `feat_relax` / `feat_standby` / `feat_chrono` are removed
+when the setting changes.
 
 ## Availability model (three separate facts)
 
@@ -29,6 +53,7 @@ online, so they stay visible while the stove is unreachable.
 | `hvac_action/state` | `off`, `preheating`, `heating`, `idle` |
 | `fan_mode/state` | `Auto`, `20%`, `40%`, `60%`, `80%`, `100%` |
 | `preset_mode/state` | `Auto`, `Man. P1` … `Man. P5` |
+| `power/state` | `P1` … `P5` (power level alone, for the *Power* select) |
 | `automatic_mode/state`, `relax/state`, `standby/state`, `chrono_mode/state` | `ON` / `OFF` |
 | `pellet_level/state` | `Ok` / `Empty` |
 | `bluetooth/state` | `ON` / `OFF` – BLE *enabled* setting (persisted) |
@@ -54,6 +79,7 @@ retained `heat` can never ignite the stove after a reboot.
 | `target_temperature/set` | number `15` … `30`, e.g. `17`, `17.0`, `17.5` | strict numeric parsing, rounded to 0.1 °C |
 | `fan_mode/set` | `Auto`, `20%` … `100%` | refused until the power level is known |
 | `preset_mode/set` | `Auto`, `Man. P1` … `Man. P5` | refused until the fan level is known |
+| `power/set` | `P1` … `P5` (or `1` … `5`) | same register as the fan; refused until the fan level is known |
 | `automatic_mode/set`, `relax/set`, `standby/set`, `chrono_mode/set` | `ON`, `OFF` | |
 | `bluetooth/set` | `ON`, `OFF` | enables / disables BLE; persisted |
 | `web_admin/set` | `ON`, `OFF` | starts / stops the local web page; persisted in `web_enabled` |
@@ -61,6 +87,7 @@ retained `heat` can never ignite the stove after a reboot.
 | `log_dump/set` | `DUMP` | replays the in-memory log buffer on `log` |
 | `diagnostics_reset/set` | `RESET` | resets counters and last error |
 | `restart/set` | `RESTART` | restarts the ESP32 (the stove is not touched) |
+| `discovery_republish/set` | `PUBLISH` | re-sends every discovery document and state (after deleting the device in Home Assistant, for instance) |
 
 Anything else is rejected with a reason (see below) and counted in
 `commands_rejected`.
@@ -114,14 +141,17 @@ Secrets are never logged.
 | Automatic Mode, Relax, Chrono, Standby | switch | `automatic_mode`, `relax`, `chrono_mode`, `standby` | – |
 | Status, Exhaust Temperature, Pellet Level | sensor | `status`, `thermocouple_temperature`, `pellet_level` | – |
 | Room Temperature | sensor | `room_temperature` | – |
+| Power | select | `power` | – |
 | Bluetooth connect | switch | `bluetooth` | config |
 | Web administration | switch | `web_admin` | config |
 | Log level | select | `log_level` | config |
-| Restart ESP32 | button | `restart` | config |
+| Restart ESP32, Republish discovery | button | `restart`, `discovery_republish` | config |
 | Stove connected, Stove data fresh | binary_sensor | `ble_connected`, `data_valid` | diagnostic |
 | Bluetooth state, Last stove response, Wi-Fi signal, Last error, Firmware, Uptime, Free memory, Boot count, Reset reason, Command queue, BLE connect attempts, BLE disconnects, Requests OK, Requests failed | sensor | `ble_state`, `last_update`, `wifi_rssi`, `last_error`, `firmware`, `uptime`, `free_heap`, `boot_count`, `reset_reason`, `queue_depth`, `ble_connect_attempts`, `ble_disconnects`, `requests_ok`, `requests_failed` | diagnostic |
 | Dump logs to MQTT, Reset counters | button | `log_dump`, `diagnostics_reset` | diagnostic |
 
 `unique_id` = `<device_id>_edilkamin_<suffix>`. Discovery documents are
-published on every MQTT connection and whenever Home Assistant announces
-itself on `homeassistant/status`.
+published on every MQTT connection, whenever Home Assistant announces itself
+on `homeassistant/status`, and on *Republish discovery*. Relax, Standby and
+Chrono are only published when the matching `feat_*` setting is on; their
+documents are deleted otherwise.

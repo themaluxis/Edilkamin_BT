@@ -60,6 +60,32 @@ bool isHex32(const char *s) {
   return true;
 }
 
+bool normalizeHostname(char *name, size_t len) {
+  if (!name || len == 0)
+    return false;
+  trimInPlace(name);
+  char out[32];
+  size_t o = 0;
+  for (const char *p = name; *p && o + 1 < sizeof(out) && o < 31; p++) {
+    char c = *p;
+    if (c >= 'A' && c <= 'Z')
+      c = (char)(c - 'A' + 'a');
+    if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-')
+      out[o++] = c;
+    else if (c == '_' || c == ' ' || c == '.')
+      out[o++] = '-';
+  }
+  out[o] = '\0';
+  while (o > 0 && out[o - 1] == '-')
+    out[--o] = '\0';
+  const char *start = out;
+  while (*start == '-')
+    start++;
+  bool changed = strcmp(name, start) != 0;
+  copyStr(name, len, start);
+  return !changed;
+}
+
 template <typename T>
 static bool clampField(T &v, T lo, T hi, const char *name, char *notes,
                        size_t notesLen) {
@@ -134,6 +160,12 @@ int validateConfig(AppConfig &cfg, char *notes, size_t notesLen) {
   fixes += clampField<uint16_t>(cfg.diagIntervalS, 10, 3600, "diag_interval_s", notes, notesLen);
   if (cfg.wifiRebootAfterMin != 0)
     fixes += clampField<uint16_t>(cfg.wifiRebootAfterMin, 5, 1440, "wifi_reboot_after_min", notes, notesLen);
+  if (!normalizeHostname(cfg.hostname, sizeof(cfg.hostname)))
+    fixes++;
+  if (cfg.hostname[0] == '\0') {
+    copyStr(cfg.hostname, sizeof(cfg.hostname), "edilkaminble");
+    fixes++;
+  }
   trimInPlace(cfg.adminUser);
   if (cfg.adminUser[0] == '\0') {
     copyStr(cfg.adminUser, sizeof(cfg.adminUser), "admin");

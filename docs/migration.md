@@ -6,8 +6,13 @@
 * Home Assistant discovery topics and `unique_id`s → entity ids are kept.
 * The captive portal, the WebFlash procedure and the Wemos D1 Mini ESP32 as
   reference board.
-* `config.json` is read and migrated (schema 1 → 3); no re-configuration
-  needed. v1.3 adds `web_enabled`, `admin_user`, `admin_hash` with defaults.
+* `config.json` is read and migrated (schema 1 → 4); no re-configuration
+  needed. v1.3 adds `web_enabled`, `admin_user`, `admin_hash`; v1.5 adds
+  `hostname`, `feat_*` and the discovery identity bookkeeping, all with
+  defaults that keep the current behaviour.
+* The historical `device_id` `322707E4` is kept on upgraded modules. Only a
+  module without configuration file (fresh flash with erase, factory reset)
+  gets a MAC-derived id.
 
 ## What changes in Home Assistant
 
@@ -23,7 +28,10 @@
 | Debug level fixed at compile time (serial or telnet) | Runtime log level (select entity / `log_level/set`), MQTT log stream, in-memory buffer dump. Telnet is off by default |
 
 New entities appear automatically (room temperature sensor, diagnostics,
-buttons, log level select, *Web administration* switch). If Home Assistant still shows duplicated or
+buttons, log level select, *Web administration* switch, *Power* select,
+*Republish discovery* button). The v0.x *AirKare* switch, which never worked
+with this stove profile, is removed from Home Assistant at the first start of
+v1.5. If Home Assistant still shows duplicated or
 orphaned entities from older experiments, delete the device in *MQTT →
 devices*; it is recreated on the next discovery publish.
 
@@ -58,6 +66,8 @@ firmware works exactly as before. See [web-ui.md](web-ui.md).
   partition table changes; `nvs` keeps its offset so Wi-Fi survives, LittleFS
   moves so the configuration must be exported from v1.3 and imported again.
   Step by step in [ota.md](ota.md).
-* **v1.5 Home Assistant** – identity from the stove serial / ESP MAC with a
-  migration path for `322707E4`, discovery clean-up of obsolete documents.
+* **v1.5 Home Assistant** – delivered: MAC-derived identity for fresh
+  modules, automatic clean-up when the identity changes, legacy document
+  removal, device links (`configuration_url`, MAC, hardware version),
+  *Power* select, per-feature switches, configurable hostname.
 * **v2.0** – external thermostat, stove profiles, extra The Mind functions.

@@ -2,8 +2,8 @@
 
 Ce document confronte le cahier des charges (CDC) du 24 octobre 2026 au code
 réel du dépôt, puis indique ce que livrent les itérations réalisées (périmètre
-P0 : v1.1 *Reliability* + v1.2 *Diagnostics*, puis v1.3 *Management* et
-v1.4 *OTA*) et ce qui reste à faire.
+P0 : v1.1 *Reliability* + v1.2 *Diagnostics*, puis v1.3 *Management*,
+v1.4 *OTA* et v1.5 *Home Assistant*) et ce qui reste à faire.
 
 ## 1. Vérification de l'audit (CDC §2) sur le firmware d'origine (commit `714ce29`)
 
@@ -59,11 +59,11 @@ Copies bornées (`copyStr`), schéma versionné + migration v1→v2→v3 (codec 
 ### HA01 — Disponibilité (P0) ✅
 Last Will sur `availability/state`, `ble/connected` distinct, `last_update/state`, détection de péremption (`data_max_age_s`, contrainte ≥ session + pause + 60 s), entités poêle en `availability_mode: all`, publications dédupliquées, `optimistic` retiré.
 
-### HA02 — Discovery (P1) 🟡
-Fabricant/modèle/version, catégories *diagnostic*/*config*, classes et unités, `optimistic` et `retain` retirés, identifiants existants conservés. *Reste* : identité stable (série poêle / MAC ESP) avec migration, nettoyage des documents obsolètes (v1.5).
+### HA02 — Discovery (P1) ✅ (v1.5)
+Fabricant/modèle/version/`hw_version`, `configuration_url` vers la page Web, `connections` (MAC ESP32 + adresse Bluetooth du poêle), catégories *diagnostic*/*config*, classes et unités, `optimistic` et `retain` retirés. Identité : les modules mis à jour conservent `322707E4` (continuité des `unique_id`), les modules neufs reçoivent un identifiant dérivé de la MAC ESP32 ; un changement de `device_id`/`topic_prefix` déclenche à la connexion MQTT suivante la suppression de tous les documents Discovery et topics retenus de l'ancienne identité (`ha_published_*`). Nettoyage des documents obsolètes : interrupteur *AirKare* v0.x supprimé, interrupteurs désactivés par profil supprimés, bouton *Republish discovery*.
 
-### HA03 — Entités (P1) 🟡
-Toutes les entités listées sont exposées sauf *Puissance* en *select* séparé (reste via les presets du climate) ; les fonctions dépendantes du modèle passent par `StoveProfile` (un seul profil pour l'instant).
+### HA03 — Entités (P1) ✅ (v1.5)
+Toutes les entités du tableau sont exposées, y compris *Puissance* en `select` séparé (`power/set` P1–P5, `power/state`) en plus des presets du climate. Les fonctions dépendantes du modèle sont **configurables** (`feat_relax`, `feat_standby`, `feat_chrono`, page Web → *Stove features*) : entité retirée de HA et commande refusée quand la fonction est désactivée. La détection automatique par modèle reste du ressort de F08 (v2.0).
 
 ### HA04 — Commandes prédictibles (P1) ✅
 Séquence HA → validation → envoi → écho → relecture → publication confirmée ; en cas d'échec l'ancienne valeur reste la référence et `command/result` + `last_error` expliquent pourquoi.
@@ -75,7 +75,7 @@ Non commencés ; `StoveProfile` et `Registers.h` préparent F08/F09.
 Commandes retenues effacées avant abonnement ; aucune commande émise au démarrage ; pas de réémission d'ordre sensible ; états d'alarme non masqués (statut inconnu journalisé, dernier statut valide conservé) ; interfaces de debug fermées par défaut ; comportement explicite en cas d'indisponibilité MQTT/BLE ; interface d'administration authentifiée (Digest, hash seul stocké, verrouillée sans mot de passe, anti-force-brute, désactivable) et dépourvue de toute commande vers le poêle (la page ne pilote pas le poêle, uniquement l'ESP32).
 
 ### §9 Tests 🟡
-64 tests unitaires natifs (trames, CRC, conversions, validation MQTT, file, topics, machine à états BLE, cycle de vie des commandes, configurations invalides, codec JSON de configuration et politique des secrets, logger, JSON de diagnostic, MD5 et Digest RFC 2617 (vecteur de référence), nonces, limitation de connexion, en-tête d'image OTA et scanner de marqueur). Les scénarios d'intégration du §9.2 sont décrits dans `docs/validation.md` et **restent à exécuter sur un poêle réel**.
+65 tests unitaires natifs (trames, CRC, conversions, validation MQTT, file, topics, machine à états BLE, cycle de vie des commandes, configurations invalides, codec JSON de configuration et politique des secrets, logger, JSON de diagnostic, MD5 et Digest RFC 2617 (vecteur de référence), nonces, limitation de connexion, en-tête d'image OTA et scanner de marqueur). Les scénarios d'intégration du §9.2 sont décrits dans `docs/validation.md` et **restent à exécuter sur un poêle réel**.
 
 ## 3. Choix et écarts à valider avec le propriétaire du projet
 
@@ -101,5 +101,5 @@ Commandes retenues effacées avant abonnement ; aucune commande émise au démar
 |---------|---------|-----------|
 | v1.3 Management | **livré** : `WebServer` du core (synchrone, pas de dépendance supplémentaire), authentification Digest, édition complète, journal, export/import, Wi-Fi, redémarrage, reset usine. Firmware : 1 307 677 octets (53,9 % du slot actuel), +63 Ko | — |
 | v1.4 OTA | **livré** : voir F06. Reste à faire sur matériel : scénarios O1–O8 de `docs/validation.md` (dont le rollback réel sur une image qui plante) | v1.3 |
-| v1.5 Home Assistant | identité stable + migration des `unique_id`, nettoyage discovery, `select` puissance, `number` consigne externe ; éventuellement entité HA `update` alimentée par un manifeste local | v1.4 |
-| v2.0 | thermostat externe (mode A), profils par modèle, AirKare / ventilateurs 2-3 / alarmes après validation | v1.5 |
+| v1.5 Home Assistant | **livré** : voir HA02/HA03. Non retenu : entité HA `update` (pas de serveur de versions en local) ; `number` consigne externe reporté en v2.0 avec HA05. À valider sur matériel : scénarios H1–H7 | v1.4 |
+| v2.0 | thermostat externe (HA05, mode A : consigne externe + hystérésis, jamais au-dessus des sécurités du poêle), profils par modèle (F08, détection ou sélection), AirKare / ventilateurs 2-3 / alarmes après validation des registres (F09) | v1.5 |

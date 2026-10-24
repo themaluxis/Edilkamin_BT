@@ -22,9 +22,12 @@ This fork implements the **Enhanced** specification. Delivered so far:
 * **v1.4 OTA** – firmware upload from the page, two application slots,
   image checks and automatic rollback. One last USB flash installs the new
   partition table (see `docs/ota.md`); after that no USB is needed.
+* **v1.5 Home Assistant** – stable device identity with automatic clean-up
+  when it changes, device links to the web page, *Power* select, per-module
+  stove features, removal of obsolete v0.x entities.
 
 Topic names and Home Assistant entity ids from the original firmware are
-preserved. Next: v1.5 Home Assistant identity and discovery clean-up.
+preserved on upgrade. Next: v2.0 (external thermostat, stove profiles).
 
 See `docs/`:
 

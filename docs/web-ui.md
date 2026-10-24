@@ -38,7 +38,7 @@ and loads nothing from the Internet.
 | Tab | Content |
 |-----|---------|
 | Status | stove values (status, temperatures, power/fan, modes, pellets, last valid answer), connectivity (Wi-Fi, MQTT, BLE, last error), system (firmware, uptime, heap, time, boots, log level), counters; refreshed every 5 s |
-| Settings | every key of [configuration.md](configuration.md) grouped by theme; the response says what was corrected (clamped) and whether a restart is needed |
+| Settings | every key of [configuration.md](configuration.md) grouped by theme (MQTT, identity incl. hostname, time, Bluetooth, stove features, data, logging, administration); the response says what was corrected (clamped) and whether a restart is needed |
 | Wi-Fi | current network and a scan-and-change form |
 | Log | the in-memory log buffer (48 lines), level selector (`DEBUG`/`TRACE` are temporary, 30 min), auto-refresh, download |
 | Maintenance | export / import JSON, restart, factory reset (type `ERASE`), firmware update over the network with rollback (see [ota.md](ota.md)), partition information |
@@ -47,9 +47,11 @@ and loads nothing from the Internet.
 
 Applied immediately: Bluetooth enabled, log levels, data validity, command
 expiry, diagnostics interval, watchdog delays, administrator credentials,
-web enabled. Everything else (MQTT broker, NTP/timezone, topics, stove MAC,
-BLE timings, telnet) is saved and flagged **Restart required**; the status
-page shows a banner with a restart button until the ESP32 reboots.
+web enabled, stove features (the Home Assistant switches appear or disappear
+at once). Everything else (MQTT broker, NTP/timezone, topics, device id,
+hostname, stove MAC, BLE timings, telnet) is saved and flagged **Restart
+required**; the status page shows a banner with a restart button until the
+ESP32 reboots.
 
 ### Changing Wi-Fi
 
