@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Edilkamin_BT</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--fg:#1d2330;--mut:#687084;--line:#dcdfe6;--acc:#c8501e;--ok:#2d8a4e;--warn:#b7791f;--err:#c0392b;--inp:#fff}
+@media(prefers-color-scheme:dark){:root{--bg:#14171d;--card:#1d2129;--fg:#e6e8ee;--mut:#9aa3b5;--line:#2e3442;--acc:#f0763f;--ok:#4cc272;--warn:#e0a640;--err:#ef6a5c;--inp:#121519}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--fg)}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:12px 16px;background:var(--card);border-bottom:1px solid var(--line)}
+h1{font-size:18px;margin:0}h1 small{color:var(--mut);font-weight:400;margin-left:8px;font-size:13px}
+nav{display:flex;gap:4px;flex-wrap:wrap;margin-left:auto}nav button{background:none;border:1px solid transparent;color:var(--mut);padding:6px 10px;border-radius:6px;cursor:pointer;font:inherit}
+nav button.on{color:var(--fg);border-color:var(--line);background:var(--bg)}
+main{max-width:980px;margin:0 auto;padding:16px}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.card h2{font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);margin:0 0 10px}
+table{width:100%;border-collapse:collapse}td{padding:4px 0;vertical-align:top}td:first-child{color:var(--mut);width:46%}td:last-child{text-align:right;font-variant-numeric:tabular-nums;word-break:break-word}
+.b{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;background:var(--line)}.b.ok{background:var(--ok);color:#fff}.b.warn{background:var(--warn);color:#fff}.b.err{background:var(--err);color:#fff}
+fieldset{border:1px solid var(--line);border-radius:8px;margin:0 0 12px;padding:10px 14px}legend{color:var(--mut);padding:0 6px;font-size:13px}
+label.f{display:grid;grid-template-columns:minmax(140px,40%) 1fr;gap:8px;align-items:center;padding:4px 0}label.f span small{display:block;color:var(--mut);font-size:12px}
+input,select{font:inherit;color:var(--fg);background:var(--inp);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%}input[type=checkbox]{width:auto;justify-self:start}
+button.p,button.d,button.s{font:inherit;border:0;border-radius:6px;padding:8px 14px;cursor:pointer;color:#fff;background:var(--acc)}button.d{background:var(--err)}button.s{background:var(--mut)}button:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+.msg{padding:8px 12px;border-radius:6px;margin:8px 0;display:none}.msg.ok{display:block;background:color-mix(in srgb,var(--ok) 15%,transparent)}.msg.err{display:block;background:color-mix(in srgb,var(--err) 15%,transparent)}.msg.warn{display:block;background:color-mix(in srgb,var(--warn) 18%,transparent)}
+pre{background:var(--inp);border:1px solid var(--line);border-radius:8px;padding:10px;max-height:60vh;overflow:auto;font-size:12.5px;white-space:pre-wrap}
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 14px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none}
+.nets button{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);padding:6px 4px;color:var(--fg);cursor:pointer;font:inherit}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header><h1>Edilkamin_BT <small id="fw"></small></h1>
+<nav id="nav"><button data-t="status" class="on">Status</button><button data-t="settings">Settings</button><button data-t="wifi">Wi-Fi</button><button data-t="log">Log</button><button data-t="maint">Maintenance</button></nav></header>
+<main>
+<section id="setup" hidden><div class="card" style="max-width:460px;margin:auto"><h2>Set the administrator password</h2>
+<p>No administrator password is set yet. Choose one now; it is required for every setting and maintenance action. Only a hash of it is stored on the device.</p>
+<form id="setupForm"><label class="f"><span>User</span><input name="user" value="admin" maxlength="31" required></label>
+<label class="f"><span>Password <small>8 to 63 characters</small></span><input name="password" type="password" minlength="8" maxlength="63" required></label>
+<label class="f"><span>Confirm</span><input name="confirm" type="password" required></label>
+<div class="row"><button class="p">Save password</button></div><div class="msg" id="setupMsg"></div></form></div></section>
+
+<section id="t-status" class="tab"><div id="restartBanner" class="msg warn">A restart is required to apply the last saved settings. <button class="s" onclick="doRestart(this)">Restart now</button></div>
+<div class="grid">
+<div class="card"><h2>Stove</h2><table id="stove"></table></div>
+<div class="card"><h2>Connectivity</h2><table id="conn"></table></div>
+<div class="card"><h2>System</h2><table id="sys"></table></div>
+<div class="card"><h2>Counters</h2><table id="cnt"></table></div>
+</div><p style="color:var(--mut);font-size:12px">Refreshed every 5 s. <span id="stamp"></span></p></section>
+
+<section id="t-settings" class="tab" hidden><form id="cfgForm"><div id="fields"></div>
+<div class="row"><button class="p" type="submit">Save settings</button><button class="s" type="button" onclick="loadConfig()">Reload</button></div>
+<div class="msg" id="cfgMsg"></div></form></section>
+
+<section id="t-wifi" class="tab" hidden><div class="grid">
+<div class="card"><h2>Current network</h2><table id="wifiNow"></table></div>
+<div class="card"><h2>Change network</h2>
+<form id="wifiForm"><label class="f"><span>SSID</span><input name="ssid" maxlength="32" required></label>
+<label class="f"><span>Password <small>empty for an open network</small></span><input name="password" type="password" maxlength="63"></label>
+<div class="row"><button class="p">Save and restart</button><button class="s" type="button" onclick="scanWifi()">Scan</button></div>
+<div class="msg" id="wifiMsg"></div></form><div class="nets" id="nets"></div>
+<p style="color:var(--mut);font-size:12px">The ESP32 restarts with the new credentials. If it cannot connect, it opens the <b>Edilkamin_BT_AP</b> setup access point for three minutes at each boot.</p></div>
+</div></section>
+
+<section id="t-log" class="tab" hidden><div class="card">
+<div class="row"><label>Level <select id="lvl"><option>OFF</option><option>ERROR</option><option>WARN</option><option>INFO</option><option>DEBUG</option><option>TRACE</option></select></label>
+<button class="s" onclick="loadLog()">Refresh</button><label><input type="checkbox" id="auto"> auto-refresh</label><button class="s" onclick="dlLog()">Download</button><span id="lvlNote" style="color:var(--mut);font-size:12px"></span></div>
+<pre id="log">…</pre></div></section>
+
+<section id="t-maint" class="tab" hidden><div class="grid">
+<div class="card"><h2>Configuration backup</h2><p>The export contains every setting except the MQTT password and the administrator password hash.</p>
+<div class="row"><a class="p" style="text-decoration:none;display:inline-block" href="/api/config/export" download="edilkamin-config.json">Export JSON</a>
+<label class="s" style="padding:8px 14px;border-radius:6px;color:#fff;cursor:pointer">Import JSON<input type="file" id="imp" accept="application/json,.json" hidden></label></div><div class="msg" id="impMsg"></div></div>
+<div class="card"><h2>Restart</h2><p>Software restart of the ESP32. The stove is not affected; no command is sent at boot.</p><div class="row"><button class="s" onclick="doRestart(this)">Restart ESP32</button></div></div>
+<div class="card"><h2>Factory reset</h2><p>Erases the configuration, the Wi-Fi credentials and the administrator password, then restarts into the setup access point. Type <b>ERASE</b> to confirm.</p>
+<form id="rstForm"><div class="row"><input name="confirm" placeholder="ERASE" style="max-width:140px" autocomplete="off"><button class="d">Erase everything</button></div><div class="msg" id="rstMsg"></div></form></div>
+<div class="card"><h2>Firmware</h2><table id="fwInfo"></table><p style="color:var(--mut);font-size:12px">Network (OTA) updates arrive in v1.4 and need a two-slot partition table. Until then, update over USB or WebFlash (see docs/installation.md).</p></div>
+</div></section>
+</main>
+<div id="toast"></div>
+<script>
+const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let tab='status',autoT=null,restartPending=false;
+function toast(m){const t=$('#toast');t.textContent=m;t.style.opacity=1;clearTimeout(t._h);t._h=setTimeout(()=>t.style.opacity=0,3000)}
+function msg(id,text,cls){const e=$(id);e.className='msg '+(cls||'ok');e.innerHTML=text}
+async function api(p,o={}){const r=await fetch(p,Object.assign({cache:'no-store'},o));const ct=r.headers.get('content-type')||'';const b=ct.includes('json')?await r.json().catch(()=>({})):await r.text();
+if(r.status===401)throw new Error('Authentication required (reload the page)');
+if(r.status===403&&b.error==='setup_required'){showSetup();throw new Error('Set the administrator password first')}
+if(r.status===429)throw new Error('Too many failed logins, retry in '+(b.retry_after_s||30)+' s');
+if(!r.ok)throw new Error(b.error||(typeof b==='string'&&b)||('HTTP '+r.status));return b}
+const post=(p,d)=>api(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
+function showSetup(){$('#setup').hidden=false;document.querySelectorAll('.tab,#nav').forEach(e=>e.hidden=true)}
+$('#nav').onclick=e=>{const b=e.target.closest('button');if(!b)return;tab=b.dataset.t;document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('on',x===b));document.querySelectorAll('.tab').forEach(s=>s.hidden=s.id!=='t-'+tab);
+if(tab==='settings')loadConfig();if(tab==='log')loadLog();if(tab==='status'||tab==='wifi'||tab==='maint')loadStatus()};
+const rows=(id,r)=>{$(id).innerHTML=r.map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v??'–'}</td></tr>`).join('')};
+const badge=(t,c)=>`<span class="b ${c}">${esc(t)}</span>`,yn=b=>b?badge('yes','ok'):badge('no','');
+const tenths=v=>v==null?'–':(v/10).toFixed(1)+' °C',dur=s=>{s=+s||0;const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return(d?d+'d ':'')+h+'h '+m+'m'};
+async function loadStatus(){try{const s=await api('/api/status');const st=s.stove||{},w=s.wifi||{},b=s.ble||{},q=s.mqtt||{},y=s.system||{};
+restartPending=!!s.restart_pending;$('#restartBanner').style.display=restartPending?'block':'none';$('#fw').textContent=y.fw||'';
+rows('#stove',[['Status',st.status?badge(st.status,st.power_on?'ok':''):'–'],['Data fresh',yn(st.data_valid)],['Room temperature',tenths(st.room_temp_tenths)],['Target',tenths(st.target_temp_tenths)],['Exhaust',st.thermocouple_c!=null?st.thermocouple_c+' °C':'–'],['Power',st.power!=null?'P'+st.power:'–'],['Fan',st.fan!=null?(st.fan===6?'Auto':st.fan):'–'],['Automatic / Relax / Standby / Chrono',[st.automatic,st.relax,st.standby,st.chrono].map(v=>v==null?'–':v?'on':'off').join(' / ')],['Pellets',st.pellet||'–'],['Last valid response',st.last_valid_at||'–']]);
+rows('#conn',[['Wi-Fi',esc(w.ssid||'')+' '+badge(w.rssi+' dBm',w.rssi>-70?'ok':w.rssi>-80?'warn':'err')],['IP / host',esc(w.ip)+'<br>'+esc(w.hostname)+'.local'],['MQTT',q.connected?badge('connected','ok'):badge('disconnected','err')],['Broker',esc(q.server)+':'+esc(q.port)],['Bluetooth',badge(b.state,b.connected?'ok':b.enabled?'':'warn')+(b.enabled?'':' (disabled)')],['Stove MAC',esc(b.mac||'–')],['Last error',s.last_error?esc(s.last_error)+'<br><small>'+esc(s.last_error_at)+'</small>':badge('none','ok')]]);
+rows('#sys',[['Firmware',esc(y.fw)],['Uptime',dur(y.uptime_s)],['Free heap / minimum',(y.free_heap|0).toLocaleString()+' / '+(y.min_free_heap|0).toLocaleString()+' B'],['Time',esc(y.time||'')+(y.ntp_synced?'':' '+badge('NTP not synced','warn'))],['Boot count / reset',esc(y.boot_count)+' / '+esc(y.reset_reason)],['Last restart cause',esc(y.last_restart_cause||'–')],['Log level',esc(s.log_level)+(s.log_level_temporary?' (temporary)':'')]]);
+const c=s.counters||{};rows('#cnt',[['BLE connect attempts / sessions OK',c.ble_connect_attempts+' / '+c.ble_sessions_ok],['BLE disconnects / not found',c.ble_disconnects+' / '+c.ble_scan_not_found],['Requests OK / failed',c.requests_ok+' / '+c.requests_failed],['Commands rejected / failed',c.commands_rejected+' / '+c.commands_failed],['Queue depth / overflows',c.queue_depth+' of '+c.queue_capacity+' / '+c.queue_overflows],['MQTT / Wi-Fi reconnects',c.mqtt_reconnects+' / '+c.wifi_reconnects],['Web auth failures',c.web_auth_failures]]);
+rows('#wifiNow',[['SSID',esc(w.ssid)],['IP',esc(w.ip)],['Signal',w.rssi+' dBm'],['Channel',esc(w.channel)],['MAC',esc(w.mac)],['Hostname',esc(w.hostname)+'.local']]);
+rows('#fwInfo',[['Version',esc(y.fw)],['Built',esc(y.build)],['Arduino core / SDK',esc(y.core)+' / '+esc(y.sdk)],['Chip',esc(y.chip)],['Flash',(y.flash_size/1048576).toFixed(0)+' MB'],['Application partition',esc(y.partition)+' ('+(y.partition_size/1024|0)+' KB)'],['Sketch size / free',(y.sketch_size/1024|0)+' / '+(y.free_sketch/1024|0)+' KB'],['OTA capable',yn(y.ota_capable)]]);
+$('#stamp').textContent='Last refresh '+new Date().toLocaleTimeString()}catch(e){toast(e.message)}}
+const F=[['MQTT','mqtt_server','MQTT server','text'],['MQTT','mqtt_port','MQTT port','num'],['MQTT','mqtt_user','MQTT user','text'],['MQTT','mqtt_pass','MQTT password','pw','leave empty to keep the current one'],
+['Identity','topic_prefix','Topic prefix','text','restart required'],['Identity','device_id','Device id','text','part of every topic and unique_id; restart required'],
+['Time','ntp_server','NTP server','text'],['Time','tz','Timezone (POSIX)','text','e.g. CET-1CEST,M3.5.0,M10.5.0/3'],['Time','ntp_offset','Fixed UTC offset (s)','num','used only when the timezone is empty'],
+['Bluetooth','ble_enabled','Bluetooth enabled','bool'],['Bluetooth','stove_mac','Stove MAC','text','empty = first stove advertising the service'],['Bluetooth','ble_session_s','Session length (s)','num','10 to 3600'],['Bluetooth','ble_pause_s','Pause between sessions (s)','num','0 = stay connected'],['Bluetooth','ble_poll_ms','Poll interval (ms)','num','500 to 60000'],['Bluetooth','ble_response_timeout_ms','Response timeout (ms)','num'],['Bluetooth','ble_reconnect_initial_s','Reconnect backoff start (s)','num'],['Bluetooth','ble_reconnect_max_s','Reconnect backoff max (s)','num'],['Bluetooth','ble_scan_timeout_s','Scan timeout (s)','num','3 to 60'],['Bluetooth','ble_reboot_after_min','Reboot if unreachable for (min)','num','0 = never'],
+['Data','data_max_age_s','Data validity (s)','num','at least session + pause + 60'],['Data','command_expiry_s','Command expiry (s)','num'],
+['Logging','log_level','Log level','lvl'],['Logging','mqtt_log_level','MQTT log level','lvl'],['Logging','telnet_enabled','Telnet log access','bool','unauthenticated; off by default'],['Logging','diag_interval_s','Diagnostics interval (s)','num'],['Logging','wifi_reboot_after_min','Reboot after Wi-Fi loss (min)','num','0 = never'],
+['Administration','web_enabled','Web administration','bool','turning it off stops this interface; re-enable with the Home Assistant switch or the setup portal'],['Administration','admin_user','Administrator user','text'],['Administration','admin_pass','New administrator password','pw','8 to 63 characters; empty = unchanged']];
+const LV=['OFF','ERROR','WARN','INFO','DEBUG','TRACE'];
+function buildForm(){let g='',h='';for(const[grp,k,l,t,hint]of F){if(grp!==g){if(g)h+='</fieldset>';h+=`<fieldset><legend>${grp}</legend>`;g=grp}
+const inp=t==='bool'?`<input type="checkbox" name="${k}">`:t==='lvl'?`<select name="${k}">${LV.map((n,i)=>`<option value="${i}">${n}</option>`).join('')}</select>`:`<input name="${k}" type="${t==='num'?'number':t==='pw'?'password':'text'}" ${t==='pw'?'autocomplete="new-password"':''}>`;
+h+=`<label class="f"><span>${l}${hint?`<small>${hint}</small>`:''}</span>${inp}</label>`}$('#fields').innerHTML=h+'</fieldset>'}
+async function loadConfig(){try{const c=await api('/api/config');for(const[,k,,t]of F){const e=$('#cfgForm [name='+k+']');if(!e)continue;if(t==='bool')e.checked=!!c[k];else if(t==='pw'){e.value='';e.placeholder=k==='mqtt_pass'?(c.has_mqtt_pass?'(set)':'(not set)'):''}else e.value=c[k]??''}}catch(e){msg('#cfgMsg',esc(e.message),'err')}}
+$('#cfgForm').onsubmit=async e=>{e.preventDefault();const d={};for(const[,k,,t]of F){const el=$('#cfgForm [name='+k+']');if(t==='bool')d[k]=el.checked;else if(t==='pw'){if(el.value)d[k]=el.value}else if(t==='num'||t==='lvl')d[k]=Number(el.value);else d[k]=el.value}
+try{const r=await post('/api/config',d);let t='Saved ('+r.applied+' settings).';if(r.fixes)t+=' Corrected: '+esc(r.notes);if(r.restart_required)t+=' <b>Restart required.</b> <button class="s" type="button" onclick="doRestart(this)">Restart now</button>';if(r.web_stopping)t+=' The web interface is now disabled.';msg('#cfgMsg',t,r.restart_required?'warn':'ok');loadConfig()}catch(err){msg('#cfgMsg',esc(err.message),'err')}};
+async function doRestart(b){if(b&&!b.dataset.arm){b.dataset.arm=1;b.textContent='Click again to confirm';setTimeout(()=>{delete b.dataset.arm;b.textContent='Restart ESP32'},4000);return}
+try{await post('/api/restart',{});toast('Restarting… reload in ~20 s');setTimeout(()=>location.reload(),20000)}catch(e){toast(e.message)}}
+$('#rstForm').onsubmit=async e=>{e.preventDefault();try{await post('/api/factory-reset',{confirm:e.target.confirm.value});msg('#rstMsg','Erasing and restarting into the setup access point.','warn')}catch(err){msg('#rstMsg',esc(err.message),'err')}};
+$('#imp').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(typeof d!=='object')throw new Error('not a JSON object');delete d.mqtt_pass;delete d.admin_hash;delete d.admin_pass;const r=await post('/api/config',d);msg('#impMsg','Imported '+r.applied+' settings'+(r.unknown?', '+r.unknown+' unknown keys ignored':'')+(r.fixes?'. Corrected: '+esc(r.notes):'')+(r.restart_required?'. <b>Restart required.</b>':''),r.restart_required?'warn':'ok')}catch(err){msg('#impMsg',esc(err.message),'err')}e.target.value=''};
+async function loadLog(){try{const t=await api('/api/log');$('#log').textContent=t||'(empty)';const p=$('#log');p.scrollTop=p.scrollHeight;const s=await api('/api/bootstrap');$('#lvl').value=s.log_level;$('#lvlNote').textContent=s.log_level_temporary?'temporary level, reverts after 30 min':''}catch(e){toast(e.message)}}
+$('#lvl').onchange=async e=>{try{const r=await post('/api/log/level',{level:e.target.value});toast('Log level '+r.level+(r.temporary?' (temporary)':''));loadLog()}catch(err){toast(err.message)}};
+$('#auto').onchange=e=>{clearInterval(autoT);if(e.target.checked)autoT=setInterval(()=>{if(tab==='log')loadLog()},5000)};
+function dlLog(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([$('#log').textContent],{type:'text/plain'}));a.download='edilkamin-log.txt';a.click()}
+let scanT=null;async function scanWifi(){clearTimeout(scanT);try{const r=await api('/api/wifi/scan');if(r.status==='scanning'){$('#nets').innerHTML='<p style="color:var(--mut)">Scanning…</p>';scanT=setTimeout(scanWifi,1500);return}
+$('#nets').innerHTML=(r.networks||[]).map(n=>`<button type="button" data-s="${esc(n.ssid)}">${esc(n.ssid)||'(hidden)'} <span style="float:right;color:var(--mut)">${n.rssi} dBm ${n.secure?'🔒':''}</span></button>`).join('')||'<p>No network found</p>';
+$('#nets').onclick=e=>{const b=e.target.closest('button');if(b){$('#wifiForm [name=ssid]').value=b.dataset.s;$('#wifiForm [name=password]').focus()}}}catch(e){toast(e.message)}}
+$('#wifiForm').onsubmit=async e=>{e.preventDefault();const b=e.target.querySelector('button.p');if(!b.dataset.arm){b.dataset.arm=1;b.textContent='Click again to confirm';setTimeout(()=>{delete b.dataset.arm;b.textContent='Save and restart'},4000);return}
+try{await post('/api/wifi',{ssid:e.target.ssid.value,password:e.target.password.value});msg('#wifiMsg','Credentials stored, restarting. Reconnect to the new network and reopen this page.','warn')}catch(err){msg('#wifiMsg',esc(err.message),'err')}};
+$('#setupForm').onsubmit=async e=>{e.preventDefault();const f=e.target;if(f.password.value!==f.confirm.value){msg('#setupMsg','Passwords differ','err');return}
+try{await post('/api/setup',{user:f.user.value,password:f.password.value});msg('#setupMsg','Password set. Reloading…');setTimeout(()=>location.reload(),800)}catch(err){msg('#setupMsg',esc(err.message),'err')}};
+(async()=>{buildForm();try{const b=await api('/api/bootstrap');$('#fw').textContent=b.fw||'';if(b.setup_required){showSetup();return}await loadStatus();setInterval(()=>{if(tab==='status'||tab==='wifi')loadStatus()},5000)}catch(e){toast(e.message)}})();
+</script>
+</body>
+</html>

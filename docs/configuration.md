@@ -1,12 +1,12 @@
 # Configuration
 
-Configuration lives in `/config.json` on the LittleFS partition (schema 2).
-The captive portal (`Edilkamin_BT_AP`) edits the common fields; the others
-can be changed by editing the JSON (upload over the serial console or via the
-upcoming web UI) and will get a web form in v1.3.
+Configuration lives in `/config.json` on the LittleFS partition (schema 3).
+The captive portal (`Edilkamin_BT_AP`) edits the common fields; **every** key
+can be edited from the local web page (`http://edilkaminble.local/`, see
+[web-ui.md](web-ui.md)), which also exports and imports the file.
 
-Files written by v0.x (schema 1) are read and migrated automatically; nothing
-has to be re-entered after an upgrade.
+Files written by v0.x (schema 1) and v1.1 (schema 2) are read and migrated
+automatically; nothing has to be re-entered after an upgrade.
 
 ## Captive portal fields
 
@@ -22,6 +22,10 @@ Wi-Fi in the background).
 | Stove BLE MAC | `stove_mac` | empty → first stove advertising service `abf0` |
 | BLE session length (s) | `ble_session_s` | 30 |
 | BLE pause between sessions (s) | `ble_pause_s` | 120 (`0` = stay connected) |
+| Web admin password | `admin_hash` (stored hashed) | empty → web administration locked until set |
+
+Password fields are never pre-filled with the stored value; leaving them
+empty keeps the current password.
 
 Timezone examples: `CET-1CEST,M3.5.0,M10.5.0/3` (Central Europe),
 `GMT0BST,M3.5.0/1,M10.5.0` (UK), `EST5EDT,M3.2.0,M11.1.0` (US East). With a
@@ -31,7 +35,7 @@ POSIX TZ string daylight saving time is handled automatically.
 
 | Key | Type | Default | Range / notes |
 |-----|------|---------|---------------|
-| `schema` | int | 2 | written by the firmware |
+| `schema` | int | 3 | written by the firmware |
 | `mqtt_server` | string | | ≤ 63 chars |
 | `mqtt_port` | int | 1883 | 1–65535 |
 | `mqtt_user`, `mqtt_pass` | string | | ≤ 47 / 63 chars |
@@ -57,6 +61,9 @@ POSIX TZ string daylight saving time is handled automatically.
 | `telnet_enabled` | bool | false | unauthenticated telnet log viewer on port 23 (LAN only, off by default) |
 | `diag_interval_s` | int | 60 | 10–3600 |
 | `wifi_reboot_after_min` | int | 15 | 0 = never; minutes without Wi-Fi before a restart |
+| `web_enabled` | bool | true | local web administration on port 80; also `web_admin/set` |
+| `admin_user` | string | `admin` | 1–31 chars, no `:` or `"` |
+| `admin_hash` | string | | `MD5(user:Edilkamin:password)`, 32 hex; empty = locked. Set from the portal or the web page, never by hand |
 
 Values outside their range are clamped at boot and logged
 (`config corrected (n): …`).
@@ -65,10 +72,23 @@ Values outside their range are clamped at boot and logged
 
 * `log_level/set` – immediate; `DEBUG` and `TRACE` revert after 30 minutes.
 * `bluetooth/set` – enable/disable BLE; persisted in `ble_enabled`.
+* `web_admin/set` – enable/disable the web page; persisted in `web_enabled`.
+* Web page *Settings* – live for Bluetooth enabled, log levels, data
+  validity, command expiry, intervals, watchdogs and credentials; everything
+  else is flagged *restart required*.
 * `diagnostics_reset/set`, `log_dump/set`, `restart/set` – see
   [mqtt-api.md](mqtt-api.md).
 
+## Backup and restore
+
+*Maintenance → Export JSON* on the web page downloads every key except
+`mqtt_pass` and `admin_hash`. *Import JSON* applies such a file (unknown keys
+are ignored, values are validated and clamped). Re-enter the MQTT password
+afterwards if the broker needs one.
+
 ## Factory reset
 
-Hold the boot button (GPIO0) while powering the board: `config.json`, the
-Wi-Fi credentials and the NVS counters are erased and the portal starts.
+Hold the boot button (GPIO0) while powering the board, or use *Maintenance →
+Factory reset* on the web page: `config.json`, the Wi-Fi credentials, the
+administrator password and the NVS counters are erased and the portal
+starts.

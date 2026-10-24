@@ -1,8 +1,9 @@
 # Analyse d'écart — Cahier des charges « Edilkamin_BT Enhanced » v1.0
 
 Ce document confronte le cahier des charges (CDC) du 24 octobre 2026 au code
-réel du dépôt, puis indique ce que livre cette première itération (périmètre
-P0 : v1.1 *Reliability* + v1.2 *Diagnostics*) et ce qui reste à faire.
+réel du dépôt, puis indique ce que livrent les itérations réalisées (périmètre
+P0 : v1.1 *Reliability* + v1.2 *Diagnostics*, puis v1.3 *Management*) et ce
+qui reste à faire.
 
 ## 1. Vérification de l'audit (CDC §2) sur le firmware d'origine (commit `714ce29`)
 
@@ -39,20 +40,21 @@ Machine à états explicite `DISABLED / IDLE / SCANNING / CONNECTING / CONNECTED
 ### F02 — Fiabilisation des commandes (P0) ✅
 Cycle `RECEIVED → VALIDATED → QUEUED → SENT → ACKNOWLEDGED → VERIFIED` + `REJECTED / TIMEOUT / FAILED` (`commands/*`, `stove/StoveController`). Validation stricte des payloads et conversion numérique de la consigne (`17`, `17.0`, `17.5` acceptés ; comma, lettres, hors plage refusés). Vérification des trames : longueur, clé fixe, padding PKCS#7, CRC16, code fonction, correspondance registre/longueur avec la commande en cours, exceptions modbus. Priorités User > Verify > Poll, déduplication documentée, débordement compté et signalé (`FAILED command queue full`, `queue_overflows`). Relecture systématique après écriture ; **aucune réémission automatique d'une écriture** (les lectures sont réessayées une fois). Résultat observable de chaque commande sur `command/result`.
 
-### F03 — Debug et journalisation (P0) 🟡
-Niveaux `OFF…TRACE` modifiables à chaud par MQTT (entité *select*), retour automatique après 30 min pour `DEBUG/TRACE`, journal circulaire (48 lignes) horodaté, export par MQTT (`log_dump`), flux `log`, compteurs d'erreurs, suppression des messages trompeurs, aucun secret journalisé, Telnet **désactivé par défaut**. *Reste* : l'interface Web locale (v1.3) ; l'export texte passe par MQTT en attendant.
+### F03 — Debug et journalisation (P0) ✅
+Niveaux `OFF…TRACE` modifiables à chaud par MQTT (entité *select*) et depuis la page Web, retour automatique après 30 min pour `DEBUG/TRACE`, journal circulaire (48 lignes) horodaté, export par MQTT (`log_dump`) et téléchargement texte depuis la page Web (onglet *Log*), flux `log`, compteurs d'erreurs, suppression des messages trompeurs, aucun secret journalisé, Telnet **désactivé par défaut**.
 
 ### F04 — Supervision ESP32 (P0) ✅
 Document `diagnostics/state` + 19 entités HA (RSSI, état BLE réel, tentatives, déconnexions, requêtes OK/échouées, dernière communication valide, dernière erreur, uptime, mémoire, nombre et cause des redémarrages, version, file de commandes). Compteurs réinitialisables ; seuls le compteur de boot et la cause de redémarrage sont persistés (une écriture NVS par démarrage, pas d'usure).
 
-### F05 — Configuration et maintenance (P1) 🟡
-Schéma de configuration v2 validé et borné, portail enrichi (TZ, MAC, durées BLE), redémarrage par MQTT, reset usine par bouton. *Reste* : interface Web d'administration authentifiée, export/import, édition des paramètres avancés sans reflash (v1.3).
+### F05 — Configuration et maintenance (P1) ✅ (v1.3)
+Interface Web locale (`http://edilkaminble.local/`, mDNS) servie depuis la flash (page gzip 7,8 Ko, aucune ressource externe) : informations système, édition de **tous** les paramètres (Wi-Fi, MQTT, poêle/MAC BLE, cycle Bluetooth, intervalles, niveaux de log, administration), journal circulaire, export/import JSON **sans secrets**, redémarrage, reset usine avec confirmation textuelle (`ERASE`), version/partition/aptitude OTA. Le portail captif reste le mode secours (ouvert 3 min à chaque démarrage sans Wi-Fi) et permet de définir le mot de passe admin.
+Sécurité : authentification **Digest** obligatoire (seul `MD5(user:realm:mdp)` est stocké), administration verrouillée tant qu'aucun mot de passe n'est défini, limitation anti-force-brute (5 échecs/min → 30 s), validation stricte et bornes de longueur (corps ≤ 6 Ko, champs bornés), mot de passe MQTT jamais renvoyé ni exporté, service désactivable (`web_enabled`, interrupteur HA *Web administration*), HTTP en clair réservé au LAN (documenté). Voir `docs/web-ui.md`.
 
 ### F06 — OTA (P1) ⬜
 Non commencé. Mesures utiles : firmware actuel **1 860 861 octets** (76,7 % du slot de 2,4 Mo). Sur 4 Mo, une table `nvs 0x5000 / otadata 0x2000 / app0 0x1E0000 / app1 0x1E0000 / littlefs 0x30000` tient (2 × 1,97 Mo + 192 Ko), avec ~110 Ko de marge par slot. Pistes si la marge devient insuffisante : désactiver les rôles NimBLE *peripheral/broadcaster*, remplacer WiFiManager par le futur serveur Web, retirer TelnetStream.
 
 ### F07 — Fiabilisation système (P1) 🟡
-Copies bornées (`copyStr`), schéma versionné + migration v1→v2, écriture atomique de `config.json` (fichier temporaire + rename), erreurs LittleFS journalisées, attente NTP (8 s) et indicateur `ntp_synced`, TZ POSIX avec heure d'été, plus aucun redémarrage sur perte MQTT, watchdog Wi-Fi long (15 min) et cause persistée. *Reste* : portail non bloquant pendant les coupures réseau prolongées.
+Copies bornées (`copyStr`), schéma versionné + migration v1→v2→v3 (codec JSON unique `ConfigJson` testé nativement), écriture atomique de `config.json` (fichier temporaire + rename), erreurs LittleFS journalisées, attente NTP (8 s) et indicateur `ntp_synced`, TZ POSIX avec heure d'été, plus aucun redémarrage sur perte MQTT, watchdog Wi-Fi long (15 min) et cause persistée, changement de Wi-Fi depuis la page Web avec repli automatique sur le portail. *Reste* : portail non bloquant pendant les coupures réseau prolongées (le portail WiFiManager bloque 3 min au démarrage).
 
 ### HA01 — Disponibilité (P0) ✅
 Last Will sur `availability/state`, `ble/connected` distinct, `last_update/state`, détection de péremption (`data_max_age_s`, contrainte ≥ session + pause + 60 s), entités poêle en `availability_mode: all`, publications dédupliquées, `optimistic` retiré.
@@ -70,10 +72,10 @@ Séquence HA → validation → envoi → écho → relecture → publication co
 Non commencés ; `StoveProfile` et `Registers.h` préparent F08/F09.
 
 ### §8 Sécurité ✅
-Commandes retenues effacées avant abonnement ; aucune commande émise au démarrage ; pas de réémission d'ordre sensible ; états d'alarme non masqués (statut inconnu journalisé, dernier statut valide conservé) ; interfaces de debug fermées par défaut ; comportement explicite en cas d'indisponibilité MQTT/BLE.
+Commandes retenues effacées avant abonnement ; aucune commande émise au démarrage ; pas de réémission d'ordre sensible ; états d'alarme non masqués (statut inconnu journalisé, dernier statut valide conservé) ; interfaces de debug fermées par défaut ; comportement explicite en cas d'indisponibilité MQTT/BLE ; interface d'administration authentifiée (Digest, hash seul stocké, verrouillée sans mot de passe, anti-force-brute, désactivable) et dépourvue de toute commande vers le poêle (la page ne pilote pas le poêle, uniquement l'ESP32).
 
 ### §9 Tests 🟡
-51 tests unitaires natifs (trames, CRC, conversions, validation MQTT, file, topics, machine à états BLE, cycle de vie des commandes, configurations invalides, logger, JSON de diagnostic). Les scénarios d'intégration du §9.2 sont décrits dans `docs/validation.md` et **restent à exécuter sur un poêle réel**.
+60 tests unitaires natifs (trames, CRC, conversions, validation MQTT, file, topics, machine à états BLE, cycle de vie des commandes, configurations invalides, codec JSON de configuration et politique des secrets, logger, JSON de diagnostic, MD5 et Digest RFC 2617 (vecteur de référence), nonces, limitation de connexion). Les scénarios d'intégration du §9.2 sont décrits dans `docs/validation.md` et **restent à exécuter sur un poêle réel**.
 
 ## 3. Choix et écarts à valider avec le propriétaire du projet
 
@@ -97,7 +99,7 @@ Commandes retenues effacées avant abonnement ; aucune commande émise au démar
 
 | Version | Contenu | Dépend de |
 |---------|---------|-----------|
-| v1.3 Management | serveur Web (ESPAsyncWebServer ou WebServer core), auth basique, édition config complète, visualisation du journal circulaire, export/import JSON | — |
-| v1.4 OTA | nouvelle table de partitions (ci-dessus), `Update` + rollback (`esp_ota_mark_app_valid_cancel_rollback` après connexion MQTT réussie), page de récupération | v1.3 |
+| v1.3 Management | **livré** : `WebServer` du core (synchrone, pas de dépendance supplémentaire), authentification Digest, édition complète, journal, export/import, Wi-Fi, redémarrage, reset usine. Firmware : 1 307 677 octets (53,9 % du slot actuel), +63 Ko | — |
+| v1.4 OTA | nouvelle table de partitions (ci-dessus), téléversement depuis l'onglet *Maintenance* (`Update`), `esp_ota_mark_app_valid_cancel_rollback` après connexion MQTT réussie, page de récupération ; l'export v1.3 sert de sauvegarde pour le flash USB unique qui change la table de partitions | v1.3 |
 | v1.5 Home Assistant | identité stable + migration des `unique_id`, nettoyage discovery, `select` puissance, `number` consigne externe | v1.3 |
 | v2.0 | thermostat externe (mode A), profils par modèle, AirKare / ventilateurs 2-3 / alarmes après validation | v1.5 |

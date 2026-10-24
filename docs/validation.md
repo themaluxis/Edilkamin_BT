@@ -39,3 +39,17 @@ then `COMMUNICATING`, and that retry delays start after a failed connection
 returns. If it still fails, record the decimal/hex code from Home Assistant's
 *Last error*, the stove RSSI from `connecting to`, and the USB `NimBLEClient`
 lines. A successful build is not a hardware pass for this scenario.
+
+## Web administration (v1.3)
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| W1 | Fresh install, no password in the portal, open `http://<ip>/` | setup form; after setting a password the status page loads; `config.json` contains `admin_hash` (32 hex), never the password |
+| W2 | Wrong password 5 times | `429` for 30 s, `WEB: auth failed` lines in the log, `web_auth_failures` counter increments |
+| W3 | Change `log_level` to DEBUG from the page | applies immediately, `log_level/state` publishes `DEBUG`, reverts after 30 min |
+| W4 | Change the MQTT broker | answer flags *Restart required*, banner on Status; after restart the new broker is used |
+| W5 | Export, factory reset, re-provision, import | every non-secret key restored; MQTT password must be re-entered |
+| W6 | Wi-Fi change to a wrong password | module restarts, `Edilkamin_BT_AP` visible for 3 min, correct credentials from the portal recover it |
+| W7 | Switch *Web administration* off in Home Assistant | port 80 closed within a second; switch on restores it without reboot |
+| W8 | 48 h with the status tab open in a browser (5 s refresh) | `min_free_heap` stays stable (no leak), BLE sessions unaffected |
+| W9 | Request while a BLE connection is in progress | answer delayed by at most the connection timeout, no reset, no stove command lost |

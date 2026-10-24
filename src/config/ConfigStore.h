@@ -1,4 +1,4 @@
-// LittleFS persistence for AppConfig (JSON), with migration from the v0.x
+// LittleFS persistence for AppConfig (JSON via ConfigJson), with migration from the v0.x
 // layout (schema 1: only MQTT/NTP keys, numbers stored as strings).
 #pragma once
 #include "AppConfig.h"

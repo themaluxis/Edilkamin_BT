@@ -10,6 +10,7 @@ src/
   main.cpp                     wiring: setup(), loop(), MQTT/BLE callbacks
   core/        Log.h           logging facade usable everywhere
                Strings.h       bounded string helpers, FNV hash
+               Md5             MD5 for HTTP digest authentication            [pure]
   protocol/    ModbusFrame     32-byte frame layout, CRC16, PKCS#7, parsing   [pure]
                Decoders        register values -> typed stove values         [pure]
                Registers.h     register map ("The Mind")                    [pure]
@@ -26,11 +27,23 @@ src/
                MqttManager     PubSubClient wrapper: LWT, backoff, de-dup    [esp32]
                Discovery       Home Assistant discovery documents            [esp32]
   logging/     Logger          levels, ring buffer, sinks, auto-revert       [pure]
-  config/      AppConfig       schema v2 + validation                        [pure]
-               ConfigStore     LittleFS JSON persistence + migration         [esp32]
+  config/      AppConfig       schema v3 + validation                        [pure]
+               ConfigJson      config <-> JSON, secret policy (export/import) [pure]
+               ConfigStore     LittleFS persistence (atomic write, migration)[esp32]
   diagnostics/ Diagnostics     diagnostics JSON, last-error tracker          [pure]
+  web/         DigestAuth      RFC 2617 digest, nonces, login throttle       [pure]
+               WebAdmin        WebServer routes: status, config, log, maint. [esp32]
+               WebAssets.h     generated: gzip of web/index.html
+web/           index.html      the administration page (vanilla HTML/JS)
+scripts/       version.py      FW_VERSION from git describe
+               webui.py        gzips web/index.html into src/web/WebAssets.h
 test/          one directory per module (Unity, native)
 ```
+
+The web layer follows the same split: `WebAdmin` only parses HTTP and calls
+hooks implemented in `main.cpp` (status document, live application of a new
+configuration, restart, factory reset, Wi-Fi change). Deferred actions run
+from `loop()` after the HTTP answer has been flushed.
 
 ## Data flow
 

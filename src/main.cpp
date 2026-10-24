@@ -3,11 +3,15 @@
 // Wiring only: configuration, Wi-Fi, MQTT, BLE and the stove controller are
 // implemented in their own modules (see docs/architecture.md).
 #include <Arduino.h>
+#include <ArduinoJson.h>
+#include <ESPmDNS.h>
 #include <LittleFS.h>
 #include <Preferences.h>
 #include <TelnetStream.h>
 #include <WiFi.h>
 #include <WiFiManager.h>
+#include <esp_arduino_version.h>
+#include <esp_ota_ops.h>
 #include <esp_system.h>
 #include <time.h>
 
@@ -23,6 +27,7 @@
 #include "mqtt/Topics.h"
 #include "protocol/Decoders.h"
 #include "stove/StoveController.h"
+#include "web/WebAdmin.h"
 
 #ifndef FW_VERSION
 #define FW_VERSION "dev"
@@ -43,6 +48,7 @@ static Topics topics;
 static WiFiClient net;
 static MqttManager mqtt;
 static BleManager ble;
+static WebAdmin web;
 static Preferences prefs;
 static ErrorTracker lastError;
 
@@ -58,6 +64,7 @@ static uint32_t lastUpdatePublishAt = 0;
 static time_t lastValidWall = 0;
 static time_t lastErrorWall = 0;
 static bool telnetActive = false;
+static bool mdnsActive = false;
 
 static char topicBuf[96];
 static char payloadBuf[1024];
@@ -89,6 +96,9 @@ static const char *isoTime(time_t t, char *buf, size_t n) {
 }
 
 static uint32_t uptimeMs() { return millis(); }
+static void applyLogLevel(LogLevel level);
+static void mqttSink(LogLevel, const char *line, void *);
+static void factoryReset(const char *origin);
 
 static const char *resetReasonName(esp_reset_reason_t r) {
   switch (r) {
@@ -280,6 +290,7 @@ static void publishAllStates(bool force) {
     publishObservable(s, (Observable)i, force);
   pubRaw("data_valid/state", g_ctl->dataValid() ? "ONLINE" : "OFFLINE", true, force);
   pubRaw("log_level/state", logLevelName(logger().level()), true, force);
+  pubRaw("web_admin/state", cfg.webEnabled ? "ON" : "OFF", true, force);
   publishBleState(force);
   publishLastUpdate(force);
 }
@@ -417,6 +428,231 @@ static void onBleState(BleState state, void *) {
 }
 
 // ---------------------------------------------------------------------------
+// Web administration hooks
+// ---------------------------------------------------------------------------
+static WebAdmin::Hooks webHooks();
+
+static void startWebAdmin() {
+  if (!cfg.webEnabled || web.running() || !WiFi.isConnected())
+    return;
+  web.begin(cfg, store, webHooks(), FW_VERSION);
+  if (!mdnsActive) {
+    mdnsActive = MDNS.begin(kHostname);
+    if (mdnsActive)
+      MDNS.addService("http", "tcp", 80);
+    else
+      EDK_LOGW(kTag, "mDNS start failed");
+  }
+}
+
+static void setWebEnabled(bool enabled) {
+  if (cfg.webEnabled != enabled) {
+    cfg.webEnabled = enabled;
+    store.save(cfg);
+  }
+  if (enabled)
+    startWebAdmin();
+  else
+    web.stop();
+  pubRaw("web_admin/state", enabled ? "ON" : "OFF", true, true);
+}
+
+static const char *runningPartitionLabel(uint32_t &size) {
+  const esp_partition_t *run = esp_ota_get_running_partition();
+  size = run ? run->size : 0;
+  return run ? run->label : "?";
+}
+
+static size_t webStatusJson(char *buf, size_t n, void *) {
+  JsonDocument doc;
+  const BleSessionPolicy &p = ble.policy();
+  const StoveController::Stats &st = controller.stats();
+  const StoveState &s = controller.state();
+  char iso[32];
+
+  JsonObject sys = doc["system"].to<JsonObject>();
+  sys["fw"] = FW_VERSION;
+  sys["build"] = __DATE__ " " __TIME__;
+  char core[24];
+  snprintf(core, sizeof(core), "%d.%d.%d", ESP_ARDUINO_VERSION_MAJOR,
+           ESP_ARDUINO_VERSION_MINOR, ESP_ARDUINO_VERSION_PATCH);
+  sys["core"] = core;
+  sys["sdk"] = ESP.getSdkVersion();
+  char chip[48];
+  snprintf(chip, sizeof(chip), "%s rev%d, %u cores, %u MHz", ESP.getChipModel(),
+           ESP.getChipRevision(), ESP.getChipCores(), (unsigned)ESP.getCpuFreqMHz());
+  sys["chip"] = chip;
+  sys["flash_size"] = ESP.getFlashChipSize();
+  sys["sketch_size"] = ESP.getSketchSize();
+  sys["free_sketch"] = ESP.getFreeSketchSpace();
+  uint32_t partSize = 0;
+  sys["partition"] = runningPartitionLabel(partSize);
+  sys["partition_size"] = partSize;
+  sys["ota_capable"] = esp_ota_get_next_update_partition(nullptr) != nullptr;
+  sys["uptime_s"] = millis() / 1000UL;
+  sys["free_heap"] = ESP.getFreeHeap();
+  sys["min_free_heap"] = ESP.getMinFreeHeap();
+  sys["boot_count"] = bootCount;
+  sys["reset_reason"] = resetReasonName(esp_reset_reason());
+  sys["last_restart_cause"] = lastRestartCause;
+  sys["ntp_synced"] = ntpSynced;
+  {
+    char wall[32] = "";
+    if (timeIsSynced()) {
+      time_t t = time(nullptr);
+      struct tm tmv;
+      localtime_r(&t, &tmv);
+      strftime(wall, sizeof(wall), "%Y-%m-%d %H:%M:%S", &tmv);
+    }
+    sys["time"] = wall;
+  }
+
+  JsonObject w = doc["wifi"].to<JsonObject>();
+  w["ssid"] = WiFi.SSID();
+  w["ip"] = WiFi.localIP().toString();
+  w["rssi"] = WiFi.RSSI();
+  w["channel"] = WiFi.channel();
+  w["mac"] = WiFi.macAddress();
+  w["hostname"] = kHostname;
+
+  JsonObject m = doc["mqtt"].to<JsonObject>();
+  m["connected"] = mqtt.connected();
+  m["server"] = cfg.mqttServer;
+  m["port"] = cfg.mqttPort;
+
+  JsonObject b = doc["ble"].to<JsonObject>();
+  b["state"] = p.stateName();
+  b["connected"] = p.linkUp();
+  b["enabled"] = p.enabled();
+  b["mac"] = ble.foundMac()[0] ? ble.foundMac() : cfg.stoveMac;
+  b["last_connect_error"] = ble.lastConnectError();
+
+  JsonObject so = doc["stove"].to<JsonObject>();
+  so["data_valid"] = controller.dataValid();
+  if (s.status.known) {
+    so["status"] = stoveStatusLabel(s.status.value);
+    so["power_on"] = s.powerOn.known && s.powerOn.value;
+  }
+  if (s.roomTempTenths.known)
+    so["room_temp_tenths"] = s.roomTempTenths.value;
+  if (s.targetTempTenths.known)
+    so["target_temp_tenths"] = s.targetTempTenths.value;
+  if (s.thermocoupleC.known)
+    so["thermocouple_c"] = s.thermocoupleC.value;
+  if (s.power.known)
+    so["power"] = s.power.value;
+  if (s.fan1.known)
+    so["fan"] = s.fan1.value;
+  if (s.automatic.known)
+    so["automatic"] = s.automatic.value;
+  if (s.relax.known)
+    so["relax"] = s.relax.value;
+  if (s.standby.known)
+    so["standby"] = s.standby.value;
+  if (s.chrono.known)
+    so["chrono"] = s.chrono.value;
+  if (s.pellet.known)
+    so["pellet"] = s.pellet.value == PelletLevel::Empty ? "Empty" : "Ok";
+  so["last_valid_at"] = isoTime(lastValidWall, iso, sizeof(iso));
+
+  JsonObject c = doc["counters"].to<JsonObject>();
+  c["ble_connect_attempts"] = p.stats().connectAttempts;
+  c["ble_sessions_ok"] = p.stats().sessionsOk;
+  c["ble_disconnects"] = p.stats().linkDrops;
+  c["ble_scan_not_found"] = p.stats().scanNotFound;
+  c["requests_ok"] = st.requestsOk;
+  c["requests_failed"] = st.requestsTimeout + st.framesInvalid;
+  c["commands_rejected"] = st.commandsRejected;
+  c["commands_failed"] = st.commandsFailed;
+  c["queue_depth"] = controller.queue().size();
+  c["queue_capacity"] = controller.queue().capacity();
+  c["queue_overflows"] = controller.queue().overflowCount();
+  c["mqtt_reconnects"] = mqtt.reconnectCount();
+  c["wifi_reconnects"] = wifiReconnects;
+  c["web_auth_failures"] = web.authFailures();
+
+  doc["last_error"] = lastError.message();
+  char isoErr[32];
+  doc["last_error_at"] = isoTime(lastErrorWall, isoErr, sizeof(isoErr));
+  doc["log_level"] = logLevelName(logger().level());
+  doc["log_level_temporary"] = logger().temporary();
+  doc["restart_pending"] = web.restartPending();
+  return serializeJson(doc, buf, n);
+}
+
+// Applies what can change live; reports whether a restart is needed.
+static bool webApplyConfig(const AppConfig &next, bool &restartRequired,
+                           char *msg, size_t msgLen, void *) {
+  (void)msg;
+  (void)msgLen;
+  const AppConfig &cur = cfg;
+  restartRequired =
+      strcmp(next.mqttServer, cur.mqttServer) != 0 || next.mqttPort != cur.mqttPort ||
+      strcmp(next.mqttUser, cur.mqttUser) != 0 || strcmp(next.mqttPass, cur.mqttPass) != 0 ||
+      strcmp(next.ntpServer, cur.ntpServer) != 0 || strcmp(next.timezone, cur.timezone) != 0 ||
+      next.ntpOffsetSec != cur.ntpOffsetSec ||
+      strcmp(next.topicPrefix, cur.topicPrefix) != 0 || strcmp(next.deviceId, cur.deviceId) != 0 ||
+      strcmp(next.stoveMac, cur.stoveMac) != 0 ||
+      next.bleSessionS != cur.bleSessionS || next.blePauseS != cur.blePauseS ||
+      next.blePollIntervalMs != cur.blePollIntervalMs ||
+      next.bleResponseTimeoutMs != cur.bleResponseTimeoutMs ||
+      next.bleReconnectInitialS != cur.bleReconnectInitialS ||
+      next.bleReconnectMaxS != cur.bleReconnectMaxS ||
+      next.bleScanTimeoutS != cur.bleScanTimeoutS ||
+      next.telnetEnabled != cur.telnetEnabled;
+
+  // live changes
+  if (next.bleEnabled != cur.bleEnabled) {
+    ble.setEnabled(next.bleEnabled, millis());
+    controller.setBleEnabled(next.bleEnabled);
+    pubRaw("bluetooth/state", next.bleEnabled ? "ON" : "OFF", true, true);
+  }
+  if (next.logLevel != cur.logLevel) {
+    logger().setLevel((LogLevel)next.logLevel);
+    pubRaw("log_level/state", logLevelName(logger().level()), true, true);
+  }
+  if (next.mqttLogLevel != cur.mqttLogLevel)
+    logger().setSinkLevel(mqttSink, (LogLevel)next.mqttLogLevel);
+  if (next.dataMaxAgeS != cur.dataMaxAgeS || next.commandExpiryS != cur.commandExpiryS) {
+    StoveController::Config cc = controller.config();
+    cc.dataMaxAgeMs = (uint32_t)next.dataMaxAgeS * 1000UL;
+    cc.commandExpiryMs = (uint32_t)next.commandExpiryS * 1000UL;
+    controller.configure(cc);
+  }
+  if (next.webEnabled != cur.webEnabled)
+    pubRaw("web_admin/state", next.webEnabled ? "ON" : "OFF", true, true);
+  return true;
+}
+
+static void webSetLogLevel(LogLevel level, void *) { applyLogLevel(level); }
+static void webRestart(const char *cause, void *) { restartWithCause(cause); }
+static void webFactoryReset(void *) { factoryReset("web request"); }
+
+static void webSetWifi(const char *ssid, const char *pass, void *) {
+  EDK_LOGW(kTag, "storing new Wi-Fi credentials for '%s' and restarting", ssid);
+  prefs.putString("cause", "wifi credentials changed");
+  if (mqtt.connected())
+    mqtt.publish(topics.make(topicBuf, sizeof(topicBuf), "availability/state"),
+                 "OFFLINE", true, true);
+  WiFi.persistent(true);
+  WiFi.begin(ssid, pass[0] ? pass : nullptr); // written to NVS by the driver
+  delay(500);
+  Serial.flush();
+  ESP.restart();
+}
+
+static WebAdmin::Hooks webHooks() {
+  WebAdmin::Hooks h;
+  h.statusJson = webStatusJson;
+  h.applyConfig = webApplyConfig;
+  h.setLogLevel = webSetLogLevel;
+  h.restart = webRestart;
+  h.factoryReset = webFactoryReset;
+  h.setWifi = webSetWifi;
+  return h;
+}
+
+// ---------------------------------------------------------------------------
 // MQTT callbacks
 // ---------------------------------------------------------------------------
 static void setBleEnabled(bool enabled) {
@@ -472,6 +708,13 @@ static void onMqttMessage(const char *topic, const char *payload, void *) {
       setBleEnabled(false);
     return;
   }
+  if (strcmp(entity, "web_admin") == 0) {
+    if (strcmp(payload, "ON") == 0)
+      setWebEnabled(true);
+    else if (strcmp(payload, "OFF") == 0)
+      setWebEnabled(false);
+    return;
+  }
   if (strcmp(entity, "log_level") == 0) {
     LogLevel level;
     if (parseLogLevel(payload, level))
@@ -517,6 +760,29 @@ static void onMqttConnected(void *) {
 // ---------------------------------------------------------------------------
 // Setup helpers
 // ---------------------------------------------------------------------------
+// Erases configuration, Wi-Fi credentials and persisted counters, then
+// restarts into the setup access point. Used by the boot button and the web UI.
+static void factoryReset(const char *origin) {
+  EDK_LOGW(kTag, "factory reset (%s)", origin);
+  if (mqtt.connected())
+    mqtt.publish(topics.make(topicBuf, sizeof(topicBuf), "availability/state"),
+                 "OFFLINE", true, true);
+  if (LittleFS.begin(true)) {
+    store.remove();
+    LittleFS.end();
+  }
+  WiFiManager wm;
+  wm.resetSettings();
+  prefs.end();
+  prefs.begin("edk", false);
+  prefs.clear();
+  prefs.end();
+  Serial.println("Configuration erased, restarting...");
+  Serial.flush();
+  delay(500);
+  ESP.restart();
+}
+
 static void factoryResetIfRequested() {
   pinMode(0, INPUT_PULLUP);
   if (digitalRead(0) != LOW)
@@ -524,19 +790,7 @@ static void factoryResetIfRequested() {
   delay(500);
   if (digitalRead(0) != LOW)
     return;
-  Serial.println("Factory reset requested (boot button held)");
-  if (LittleFS.begin(true)) {
-    store.remove();
-    LittleFS.end();
-  }
-  WiFiManager wm;
-  wm.resetSettings();
-  prefs.begin("edk", false);
-  prefs.clear();
-  prefs.end();
-  Serial.println("Configuration erased, restarting...");
-  delay(1000);
-  ESP.restart();
+  factoryReset("boot button held");
 }
 
 static void loadConfig() {
@@ -565,7 +819,8 @@ static void runWifiManager() {
   WiFiManagerParameter pServer("server", "MQTT server", cfg.mqttServer, 63);
   WiFiManagerParameter pPort("port", "MQTT port", portBuf, 6);
   WiFiManagerParameter pUser("user", "MQTT user", cfg.mqttUser, 47);
-  WiFiManagerParameter pPass("pass", "MQTT password", cfg.mqttPass, 63);
+  WiFiManagerParameter pPass("pass", cfg.mqttPass[0] ? "MQTT password (empty = keep current)" : "MQTT password",
+                             "", 63, " type='password'");
   WiFiManagerParameter pNtp("ntp", "NTP server", cfg.ntpServer, 63);
   WiFiManagerParameter pTz("tz", "Timezone (POSIX, e.g. CET-1CEST,M3.5.0,M10.5.0/3)",
                            cfg.timezone, 63);
@@ -574,6 +829,10 @@ static void runWifiManager() {
   WiFiManagerParameter pSession("ble_session", "BLE session length (s)", sessionBuf, 5);
   WiFiManagerParameter pPause("ble_pause", "BLE pause between sessions (s, 0 = always connected)",
                               pauseBuf, 5);
+  WiFiManagerParameter pAdmin("admin_pass",
+                              cfg.adminHash[0] ? "Web admin password (8+ chars, empty = keep current)"
+                                               : "Web admin password (8+ chars; user 'admin')",
+                              "", 63, " type='password'");
 
   WiFiManager wm;
   wm.setSaveConfigCallback(saveConfigCallback);
@@ -586,6 +845,7 @@ static void runWifiManager() {
   wm.addParameter(&pMac);
   wm.addParameter(&pSession);
   wm.addParameter(&pPause);
+  wm.addParameter(&pAdmin);
   wm.setHostname(kHostname);
   wm.setTitle("Edilkamin_BT configuration");
   wm.setConfigPortalTimeout(180);
@@ -605,7 +865,8 @@ static void runWifiManager() {
     copyStr(cfg.mqttServer, sizeof(cfg.mqttServer), pServer.getValue());
     cfg.mqttPort = (uint16_t)atoi(pPort.getValue());
     copyStr(cfg.mqttUser, sizeof(cfg.mqttUser), pUser.getValue());
-    copyStr(cfg.mqttPass, sizeof(cfg.mqttPass), pPass.getValue());
+    if (pPass.getValue()[0])
+      copyStr(cfg.mqttPass, sizeof(cfg.mqttPass), pPass.getValue());
     copyStr(cfg.ntpServer, sizeof(cfg.ntpServer), pNtp.getValue());
     copyStr(cfg.timezone, sizeof(cfg.timezone), pTz.getValue());
     copyStr(cfg.stoveMac, sizeof(cfg.stoveMac), pMac.getValue());
@@ -617,6 +878,13 @@ static void runWifiManager() {
     int fixes = validateConfig(cfg, notes, sizeof(notes));
     if (fixes > 0)
       EDK_LOGW(kTag, "portal values corrected (%d): %s", fixes, notes);
+    const char *adminPass = pAdmin.getValue();
+    if (adminPass[0]) {
+      if (strlen(adminPass) >= 8)
+        WebAdmin::setAdminPassword(cfg, cfg.adminUser, adminPass);
+      else
+        EDK_LOGW(kTag, "portal admin password too short, ignored");
+    }
     store.save(cfg);
   }
 }
@@ -652,7 +920,7 @@ static void setupMqtt() {
   static const char *const commandEntities[] = {
       "hvac_mode", "fan_mode", "preset_mode", "target_temperature", "relax",
       "automatic_mode", "chrono_mode", "standby", "bluetooth", "log_level",
-      "log_dump", "diagnostics_reset", "restart"};
+      "log_dump", "diagnostics_reset", "restart", "web_admin"};
   char t[96];
   for (const char *e : commandEntities)
     mqtt.addSubscription(topics.set(t, sizeof(t), e), true);
@@ -701,6 +969,7 @@ void setup() {
   logger().addSink(mqttSink, nullptr, (LogLevel)cfg.mqttLogLevel);
 
   setupMqtt();
+  startWebAdmin();
 
   StoveController::Config cc;
   cc.pollIntervalMs = cfg.blePollIntervalMs;
@@ -762,6 +1031,9 @@ void loop() {
   wifiHousekeeping(now);
   mqtt.loop(now, WiFi.isConnected());
   logger().tick(now);
+  if (!web.running() && cfg.webEnabled && WiFi.isConnected())
+    startWebAdmin();
+  web.loop(now);
 
   if (!ntpSynced && timeIsSynced()) {
     ntpSynced = true;

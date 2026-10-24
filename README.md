@@ -8,13 +8,20 @@ I wrote the code for my Slide2 7-UP pellet stove, but actually all stoves from E
 
 ## Status
 
-This fork implements the **Enhanced** specification, starting with the P0
-scope (v1.1 *Reliability* + v1.2 *Diagnostics*): an explicit BLE state
-machine, a traceable command lifecycle with read-back verification, frame
-validation (CRC/padding/key), three-level availability in Home Assistant
-(ESP online / BLE connected / data fresh), runtime log levels with remote
-log access, and a full set of diagnostic entities. Topic names and Home
-Assistant entity ids from the original firmware are preserved.
+This fork implements the **Enhanced** specification. Delivered so far:
+
+* **v1.1 / v1.2 Reliability & Diagnostics** – explicit BLE state machine,
+  traceable command lifecycle with read-back verification, frame validation
+  (CRC/padding/key), three-level availability in Home Assistant (ESP online /
+  BLE connected / data fresh), runtime log levels with remote log access, a
+  full set of diagnostic entities.
+* **v1.3 Management** – local web administration at
+  `http://edilkaminble.local/` with digest authentication: status, every
+  setting, Wi-Fi change, log viewer, configuration export/import, restart,
+  factory reset. No USB needed after the first flash.
+
+Topic names and Home Assistant entity ids from the original firmware are
+preserved. Next: v1.4 OTA updates (two-slot partition table).
 
 See `docs/`:
 
@@ -22,6 +29,7 @@ See `docs/`:
 |----------|---------|
 | [installation.md](docs/installation.md) | flashing, first configuration, building, running the tests |
 | [configuration.md](docs/configuration.md) | every configuration key, portal fields, runtime controls |
+| [web-ui.md](docs/web-ui.md) | local web administration: access, security model, pages, HTTP API |
 | [mqtt-api.md](docs/mqtt-api.md) | topics, payloads, command results, diagnostics, HA entities |
 | [architecture.md](docs/architecture.md) | modules, BLE state machine, command lifecycle |
 | [troubleshooting.md](docs/troubleshooting.md) | remote diagnosis without USB |

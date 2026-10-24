@@ -48,6 +48,18 @@ bool normalizeMac(char *mac, size_t len) {
   return isValidMac(mac);
 }
 
+bool isHex32(const char *s) {
+  if (!s || strlen(s) != 32)
+    return false;
+  for (int i = 0; i < 32; i++) {
+    char c = s[i];
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+          (c >= 'A' && c <= 'F')))
+      return false;
+  }
+  return true;
+}
+
 template <typename T>
 static bool clampField(T &v, T lo, T hi, const char *name, char *notes,
                        size_t notesLen) {
@@ -122,6 +134,25 @@ int validateConfig(AppConfig &cfg, char *notes, size_t notesLen) {
   fixes += clampField<uint16_t>(cfg.diagIntervalS, 10, 3600, "diag_interval_s", notes, notesLen);
   if (cfg.wifiRebootAfterMin != 0)
     fixes += clampField<uint16_t>(cfg.wifiRebootAfterMin, 5, 1440, "wifi_reboot_after_min", notes, notesLen);
+  trimInPlace(cfg.adminUser);
+  if (cfg.adminUser[0] == '\0') {
+    copyStr(cfg.adminUser, sizeof(cfg.adminUser), "admin");
+    fixes++;
+  }
+  for (char *p = cfg.adminUser; *p; p++)
+    if (*p == ':' || *p == '"' || *p == '\\' || (unsigned char)*p < 0x20) {
+      *p = '_';
+      fixes++;
+    }
+  if (cfg.adminHash[0] != '\0' && !isHex32(cfg.adminHash)) {
+    cfg.adminHash[0] = '\0';
+    fixes++;
+    if (notes && notesLen) {
+      size_t used = strlen(notes);
+      snprintf(notes + used, notesLen > used ? notesLen - used : 0,
+               "admin_hash invalid, cleared; ");
+    }
+  }
   return fixes;
 }
 

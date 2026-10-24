@@ -73,6 +73,20 @@ They appear on USB serial; the application's failure message also enters
 its normal log buffer and sinks. A matching advertisement does not prove
 that the stove will accept a connection or that its BLE signal is reliable.
 
+## Web page problems
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| `edilkaminble.local` does not resolve | mDNS is blocked on some networks or Windows setups; use the IP from the router or from the *Wi-Fi signal* device page in Home Assistant (`diagnostics/state` → `ip`) |
+| Page loads but every action says *Set the administrator password first* | No password was ever set; the page shows the setup form on reload. If it does not, somebody already set one: factory reset (boot button) |
+| Browser keeps asking for credentials | Wrong user or password. After five failures within a minute the API answers `429` for 30 s; wait and retry. The user name is case sensitive (`admin` by default) |
+| Page unreachable, everything else works | `web_enabled` is `false` (switch *Web administration* in Home Assistant, or `web_admin/set ON`) |
+| Settings saved but nothing changed | The answer said *Restart required*: MQTT, NTP, topics, stove MAC, BLE timings and telnet apply after a restart (banner on the Status tab) |
+| Wi-Fi change failed and the module is gone | It restarted and could not join the new network: connect to `Edilkamin_BT_AP` within the three-minute portal window (repeats at every boot) and enter the right credentials |
+
+The log (*Log* tab or `log` topic) shows `WEB: auth failed from <ip>` for
+rejected logins and `configuration updated via web` for applied changes.
+
 ## Raise the log level remotely
 
 1. Set the *Log level* select (or publish on `log_level/set`) to `DEBUG` or

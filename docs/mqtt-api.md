@@ -32,6 +32,7 @@ online, so they stay visible while the stove is unreachable.
 | `automatic_mode/state`, `relax/state`, `standby/state`, `chrono_mode/state` | `ON` / `OFF` |
 | `pellet_level/state` | `Ok` / `Empty` |
 | `bluetooth/state` | `ON` / `OFF` – BLE *enabled* setting (persisted) |
+| `web_admin/state` | `ON` / `OFF` – local web administration enabled (persisted) |
 | `ble/state` | `DISABLED`, `IDLE`, `SCANNING`, `CONNECTING`, `CONNECTED`, `COMMUNICATING`, `ERROR` |
 | `last_update/state` | ISO 8601 UTC timestamp of the last valid stove answer |
 | `log_level/state` | `OFF`, `ERROR`, `WARN`, `INFO`, `DEBUG`, `TRACE` |
@@ -55,6 +56,7 @@ retained `heat` can never ignite the stove after a reboot.
 | `preset_mode/set` | `Auto`, `Man. P1` … `Man. P5` | refused until the fan level is known |
 | `automatic_mode/set`, `relax/set`, `standby/set`, `chrono_mode/set` | `ON`, `OFF` | |
 | `bluetooth/set` | `ON`, `OFF` | enables / disables BLE; persisted |
+| `web_admin/set` | `ON`, `OFF` | starts / stops the local web page; persisted in `web_enabled` |
 | `log_level/set` | `OFF` … `TRACE` | `DEBUG`/`TRACE` revert to the previous level after 30 min |
 | `log_dump/set` | `DUMP` | replays the in-memory log buffer on `log` |
 | `diagnostics_reset/set` | `RESET` | resets counters and last error |
@@ -92,7 +94,7 @@ retained):
 | `queue_depth`, `queue_capacity`, `queue_overflows` | command queue |
 | `mqtt_reconnects`, `wifi_reconnects`, `rssi`, `ip` | network |
 | `uptime_s`, `free_heap`, `min_free_heap` | ESP32 health |
-| `boot_count`, `reset_reason`, `last_restart_cause` | reboot tracking (`last_restart_cause` is set by the firmware before an intentional restart: `wifi watchdog`, `ble watchdog`, `mqtt restart command`) |
+| `boot_count`, `reset_reason`, `last_restart_cause` | reboot tracking (`last_restart_cause` is set by the firmware before an intentional restart: `wifi watchdog`, `ble watchdog`, `mqtt restart command`, `web restart`, `wifi credentials changed`) |
 | `last_error`, `last_error_at` | last error message and time |
 | `last_valid_at`, `data_valid`, `ntp_synced`, `log_level` | data freshness / time / logging |
 
@@ -112,6 +114,7 @@ Secrets are never logged.
 | Status, Exhaust Temperature, Pellet Level | sensor | `status`, `thermocouple_temperature`, `pellet_level` | – |
 | Room Temperature | sensor | `room_temperature` | – |
 | Bluetooth connect | switch | `bluetooth` | config |
+| Web administration | switch | `web_admin` | config |
 | Log level | select | `log_level` | config |
 | Restart ESP32 | button | `restart` | config |
 | Stove connected, Stove data fresh | binary_sensor | `ble_connected`, `data_valid` | diagnostic |

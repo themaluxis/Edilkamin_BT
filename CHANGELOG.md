@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased — v1.3 "Management" (F05 of the Enhanced spec)
+
+### Added
+- Local web administration at `http://edilkaminble.local/` (mDNS) served from flash: status (stove, connectivity, system, counters), full settings editor with live apply / restart-required reporting, Wi-Fi scan and change, log viewer with level selector and download, configuration export/import (no secrets), restart, factory reset with typed confirmation, firmware and partition information.
+- HTTP Digest authentication (RFC 2617); only `MD5(user:realm:password)` is stored (`admin_user`, `admin_hash`). Administration stays locked until a password is set (captive portal field or first-access form). Five failed logins per minute lock the API for 30 s.
+- `web_enabled` setting, `web_admin/set|state` topics and a *Web administration* switch in Home Assistant to disable the service entirely.
+- Configuration schema v3 with a shared JSON codec (`config/ConfigJson`), used by the LittleFS store, the web API and the export/import; migration from v1/v2 is automatic.
+- Native tests for MD5, digest parsing/verification (RFC vector), nonce slots, login throttle and the config codec (60 tests in total).
+- `docs/web-ui.md`; web scenarios in `docs/validation.md`.
+
+### Changed
+- Captive portal: password fields are no longer pre-filled with stored values (empty keeps the current one); new *Web admin password* field.
+- `last_restart_cause` gains `web restart` and `wifi credentials changed`.
+- Firmware size 1 307 677 bytes (53.9 % of the application slot).
+
 ## Unreleased — v1.1/v1.2 "Reliability & Diagnostics" (P0 scope of the Enhanced spec)
 
 ### Fixed

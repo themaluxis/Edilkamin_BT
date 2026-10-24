@@ -1,4 +1,4 @@
-// Persistent configuration (schema v2) with validation. Pure struct; the
+// Persistent configuration (schema v3) with validation. Pure struct; the
 // LittleFS/JSON persistence lives in ConfigStore (platform layer).
 #pragma once
 #include <cstddef>
@@ -7,7 +7,7 @@
 namespace edk {
 
 struct AppConfig {
-  static constexpr uint8_t kSchemaVersion = 2;
+  static constexpr uint8_t kSchemaVersion = 3;
   uint8_t schemaVersion = kSchemaVersion;
 
   // network
@@ -45,6 +45,13 @@ struct AppConfig {
   bool telnetEnabled = false;
   uint16_t diagIntervalS = 60;
   uint16_t wifiRebootAfterMin = 15; // 0 = never
+
+  // local web administration (F05)
+  bool webEnabled = true;
+  char adminUser[32] = "admin";
+  // MD5(user:realm:password) in lowercase hex; empty = no password set yet
+  // (administration locked until one is chosen).
+  char adminHash[33] = "";
 };
 
 // Normalises the configuration into safe ranges. Returns the number of
@@ -52,6 +59,7 @@ struct AppConfig {
 int validateConfig(AppConfig &cfg, char *notes = nullptr, size_t notesLen = 0);
 
 bool isValidMac(const char *mac);          // "AA:BB:CC:DD:EE:FF"
+bool isHex32(const char *s);               // 32 hex digits (MD5)
 bool normalizeMac(char *mac, size_t len);  // uppercase, validates
 
 } // namespace edk

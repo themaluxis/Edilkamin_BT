@@ -244,6 +244,15 @@ struct Builder {
       doc["state_topic"] = t(3, "bluetooth/state");
       send(doc, "switch", "bluetooth");
     }
+    // local web administration enable (ESP setting)
+    {
+      JsonDocument doc;
+      common(doc, "Web administration", "web_admin", false, false, "config");
+      doc["icon"] = "mdi:web";
+      doc["command_topic"] = t(2, "web_admin/set");
+      doc["state_topic"] = t(3, "web_admin/state");
+      send(doc, "switch", "web_admin");
+    }
     // diagnostics
     binary("Stove connected", "ble_connected", "ble/connected", "connectivity", "ON", "OFF");
     binary("Stove data fresh", "data_valid", "data_valid/state", "connectivity", "ONLINE", "OFFLINE");
