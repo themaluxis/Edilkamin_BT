@@ -52,10 +52,12 @@ firmware works exactly as before. See [web-ui.md](web-ui.md).
 * **v1.3 Management** – delivered: local web UI with digest authentication,
   full settings editor, log viewer, Wi-Fi change, export/import, restart,
   factory reset.
-* **v1.4 OTA** – web upload + rollback. Requires a two-slot partition table;
-  the current firmware (1.31 MB on Arduino 2.0.17) fits a 2 × 0x1E0000 layout
-  on 4 MB flash with a 192 kB LittleFS, see `docs/spec-gap-analysis.md`. The
-  v1.3 export/import is the migration path for that one-time USB flash.
+* **v1.4 OTA** – delivered: two application slots (2 × 1.97 MB) with a
+  192 kB LittleFS, upload from the web page, image checks, automatic
+  rollback. **Installing v1.4 requires one last USB flash** because the
+  partition table changes; `nvs` keeps its offset so Wi-Fi survives, LittleFS
+  moves so the configuration must be exported from v1.3 and imported again.
+  Step by step in [ota.md](ota.md).
 * **v1.5 Home Assistant** – identity from the stove serial / ESP MAC with a
   migration path for `322707E4`, discovery clean-up of obsolete documents.
 * **v2.0** – external thermostat, stove profiles, extra The Mind functions.

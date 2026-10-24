@@ -46,6 +46,10 @@ void WebAdmin::begin(AppConfig &cfg, ConfigStore &store, const Hooks &hooks,
   server_.on("/api/factory-reset", HTTP_POST, [this] { handleFactoryReset(); });
   server_.on("/api/wifi", HTTP_POST, [this] { handleWifi(); });
   server_.on("/api/wifi/scan", HTTP_GET, [this] { handleWifiScan(); });
+  server_.on("/api/update/info", HTTP_GET, [this] { handleUpdateInfo(); });
+  server_.on("/api/update", HTTP_POST, [this] { handleUpdateDone(); },
+             [this] { handleUpdateUpload(); });
+  server_.on("/api/update/rollback", HTTP_POST, [this] { handleRollback(); });
   server_.onNotFound([this] { handleNotFound(); });
   server_.begin();
   running_ = true;
@@ -137,33 +141,19 @@ void WebAdmin::requestAuth(bool stale) {
   server_.send(401, "application/json", "{\"error\":\"unauthorized\"}");
 }
 
-bool WebAdmin::authorize() {
-  uint32_t now = millis();
-  if (throttle_.locked(now)) {
-    char json[64];
-    snprintf(json, sizeof(json), "{\"error\":\"too many attempts\",\"retry_after_s\":%lu}",
-             (unsigned long)throttle_.retryAfterS(now));
-    sendJson(429, json);
-    return false;
-  }
-  if (setupRequired()) {
-    sendError(403, "setup_required");
-    return false;
-  }
+WebAdmin::Auth WebAdmin::checkAuth(uint32_t now) {
+  if (throttle_.locked(now))
+    return Auth::Throttled;
+  if (setupRequired())
+    return Auth::SetupRequired;
   String hdr = server_.header("Authorization");
-  if (hdr.length() == 0) {
-    requestAuth(false);
-    return false;
-  }
+  if (hdr.length() == 0)
+    return Auth::Missing;
   DigestRequest req;
-  if (!parseDigestHeader(hdr.c_str(), req)) {
-    requestAuth(false);
-    return false;
-  }
-  if (!nonces_.accepts(req.nonce, now)) {
-    requestAuth(true); // expired nonce: the browser retries transparently
-    return false;
-  }
+  if (!parseDigestHeader(hdr.c_str(), req))
+    return Auth::Missing;
+  if (!nonces_.accepts(req.nonce, now))
+    return Auth::Stale; // expired nonce: the browser retries transparently
   String path = server_.uri();
   if (!digestVerify(cfg_->adminHash, cfg_->adminUser, kAuthRealm, methodName(),
                     path.c_str(), req)) {
@@ -172,11 +162,42 @@ bool WebAdmin::authorize() {
     EDK_LOGW(kTag, "auth failed from %s for %s %s",
              server_.client().remoteIP().toString().c_str(), methodName(),
              path.c_str());
-    requestAuth(false);
-    return false;
+    return Auth::Bad;
   }
   throttle_.onSuccess();
-  return true;
+  return Auth::Ok;
+}
+
+void WebAdmin::respondAuth(Auth a, uint32_t now) {
+  switch (a) {
+  case Auth::Throttled: {
+    char json[64];
+    snprintf(json, sizeof(json), "{\"error\":\"too many attempts\",\"retry_after_s\":%lu}",
+             (unsigned long)throttle_.retryAfterS(now));
+    sendJson(429, json);
+    break;
+  }
+  case Auth::SetupRequired:
+    sendError(403, "setup_required");
+    break;
+  case Auth::Stale:
+    requestAuth(true);
+    break;
+  case Auth::Ok:
+    break;
+  default:
+    requestAuth(false);
+    break;
+  }
+}
+
+bool WebAdmin::authorize() {
+  uint32_t now = millis();
+  Auth a = checkAuth(now);
+  if (a == Auth::Ok)
+    return true;
+  respondAuth(a, now);
+  return false;
 }
 
 bool WebAdmin::readBody(JsonDocument &doc) {
@@ -513,6 +534,130 @@ void WebAdmin::handleWifiScan() {
     return;
   }
   sendJson(200, g_buf);
+}
+
+// ---------------------------------------------------------------------------
+// OTA
+// ---------------------------------------------------------------------------
+void WebAdmin::handleUpdateInfo() {
+  if (!authorize())
+    return;
+  if (!ota_) {
+    sendError(500, "OTA not available");
+    return;
+  }
+  OtaManager::Info i = ota_->info();
+  JsonDocument doc;
+  doc["running"] = i.running;
+  doc["running_size"] = i.runningSize;
+  doc["running_state"] = i.runningState;
+  doc["next"] = i.next;
+  doc["next_size"] = i.nextSize;
+  doc["other_state"] = i.otherState;
+  doc["boot"] = i.boot;
+  doc["pending_verify"] = i.pendingVerify;
+  doc["can_rollback"] = i.canRollBack;
+  doc["ota_capable"] = ota_->otaCapable();
+  doc["sketch_size"] = i.sketchSize;
+  doc["free_sketch"] = i.freeSketch;
+  doc["fw"] = fwVersion_;
+  serializeJson(doc, g_buf, sizeof(g_buf));
+  sendJson(200, g_buf);
+}
+
+// Called for every chunk of the multipart body. No response may be sent from
+// here; the outcome is reported by handleUpdateDone().
+void WebAdmin::handleUpdateUpload() {
+  HTTPUpload &up = server_.upload();
+  char err[128];
+  switch (up.status) {
+  case UPLOAD_FILE_START:
+    uploadError_[0] = '\0';
+    uploadAuth_ = checkAuth(millis());
+    if (uploadAuth_ != Auth::Ok) {
+      upload_ = UploadState::Denied;
+      return;
+    }
+    if (!ota_ || !ota_->start(err, sizeof(err))) {
+      copyStr(uploadError_, sizeof(uploadError_), ota_ ? err : "OTA not available");
+      upload_ = UploadState::Failed;
+      return;
+    }
+    EDK_LOGW(kTag, "firmware upload '%s' from %s", up.filename.c_str(),
+             server_.client().remoteIP().toString().c_str());
+    upload_ = UploadState::Writing;
+    return;
+  case UPLOAD_FILE_WRITE:
+    if (upload_ != UploadState::Writing)
+      return; // denied or already failed: drain silently
+    if (!ota_->write(up.buf, up.currentSize, err, sizeof(err))) {
+      copyStr(uploadError_, sizeof(uploadError_), err);
+      upload_ = UploadState::Failed;
+    }
+    return;
+  case UPLOAD_FILE_END:
+    if (upload_ != UploadState::Writing)
+      return;
+    if (ota_->finish(err, sizeof(err)))
+      upload_ = UploadState::Done;
+    else {
+      copyStr(uploadError_, sizeof(uploadError_), err);
+      upload_ = UploadState::Failed;
+    }
+    return;
+  case UPLOAD_FILE_ABORTED:
+    if (ota_)
+      ota_->abort();
+    copyStr(uploadError_, sizeof(uploadError_), "upload aborted by the client");
+    upload_ = UploadState::Failed;
+    return;
+  }
+}
+
+void WebAdmin::handleUpdateDone() {
+  UploadState st = upload_;
+  upload_ = UploadState::Idle;
+  switch (st) {
+  case UploadState::Denied:
+    respondAuth(uploadAuth_, millis());
+    return;
+  case UploadState::Done: {
+    JsonDocument doc;
+    doc["ok"] = true;
+    doc["size"] = ota_->written();
+    doc["version"] = ota_->imageVersion();
+    doc["restarting"] = true;
+    serializeJson(doc, g_buf, sizeof(g_buf));
+    sendJson(200, g_buf);
+    pending_ = Pending::Restart;
+    pendingAt_ = millis() + 1500;
+    return;
+  }
+  case UploadState::Failed:
+    sendError(400, uploadError_[0] ? uploadError_ : "update failed");
+    return;
+  default:
+    // multipart body without a file part, or authorisation never checked
+    if (!authorize())
+      return;
+    sendError(400, "no firmware file in the request (field name: firmware)");
+    return;
+  }
+}
+
+void WebAdmin::handleRollback() {
+  if (!authorize())
+    return;
+  char err[128];
+  if (!ota_ || !ota_->rollBack(err, sizeof(err))) {
+    sendError(400, ota_ ? err : "OTA not available");
+    return;
+  }
+  EDK_LOGW(kTag, "rollback requested from %s",
+           server_.client().remoteIP().toString().c_str());
+  sendJson(200, "{\"ok\":true,\"restarting\":true}");
+  pending_ = Pending::Restart;
+  pendingAt_ = millis() + 500;
 }
 
 void WebAdmin::handleNotFound() {

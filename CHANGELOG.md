@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased — v1.4 "OTA" (F06 of the Enhanced spec)
+
+### Added
+- Two-slot partition table (`app0`/`app1` 1.97 MB each, 192 kB LittleFS, `nvs` offset unchanged). **Requires one USB flash**; see `docs/ota.md` for the export → flash → import procedure (Wi-Fi credentials survive).
+- Firmware upload from the web page (*Maintenance → Firmware*): ESP32 header check, embedded project marker `EDILKAMIN_BT_FW_V1:<version>`, ESP-IDF image verification, slot size check; the running firmware is untouched when a check fails. Response reports size and version; the module restarts into the new slot.
+- Automatic rollback: the new image boots in pending-verification state and validates itself on MQTT connection, after 10 minutes, or on an intentional restart; any crash or reset before that makes the bootloader return to the previous slot. Manual rollback button and `/api/update/rollback`.
+- `/api/update/info`; `ota_slot` and `ota_pending` in `diagnostics/state`; diagnostics refreshed when an image gets validated.
+- `docs/ota.md`, OTA scenarios in `docs/validation.md`, native tests for the image header check and the marker scanner (64 tests in total).
+
+### Changed
+- `build_webflash.sh` ships `boot_app0.bin` at 0xE000 so a WebFlash always boots `app0` again, even after OTA updates ran from `app1`.
+- Firmware size 1 316 161 bytes (66.9 % of a 1.97 MB slot).
+
 ## Unreleased — v1.3 "Management" (F05 of the Enhanced spec)
 
 ### Added

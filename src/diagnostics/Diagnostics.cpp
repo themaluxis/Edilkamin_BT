@@ -68,7 +68,8 @@ size_t buildDiagnosticsJson(const DiagSnapshot &s, char *buf, size_t n) {
       "\"ip\":\"%s\",\"uptime_s\":%lu,\"free_heap\":%lu,\"min_free_heap\":%lu,"
       "\"boot_count\":%lu,\"reset_reason\":\"%s\",\"last_restart_cause\":\"%s\","
       "\"last_error\":\"%s\",\"last_error_at\":\"%s\",\"last_valid_at\":\"%s\","
-      "\"data_valid\":%s,\"ntp_synced\":%s,\"log_level\":\"%s\"}",
+      "\"data_valid\":%s,\"ntp_synced\":%s,\"log_level\":\"%s\","
+      "\"ota_slot\":\"%s\",\"ota_pending\":%s}",
       s.firmware, s.bleState, s.bleConnected ? "true" : "false",
       s.bleEnabled ? "true" : "false", s.stoveMac,
       (unsigned long)s.bleConnectAttempts, (unsigned long)s.bleSessionsOk,
@@ -82,7 +83,8 @@ size_t buildDiagnosticsJson(const DiagSnapshot &s, char *buf, size_t n) {
       (unsigned long)s.freeHeap, (unsigned long)s.minFreeHeap,
       (unsigned long)s.bootCount, s.resetReason, cause, err, s.lastErrorAt,
       s.lastValidAt, s.dataValid ? "true" : "false",
-      s.ntpSynced ? "true" : "false", s.logLevel);
+      s.ntpSynced ? "true" : "false", s.logLevel, s.otaSlot,
+      s.otaPending ? "true" : "false");
   return w < 0 ? 0 : (size_t)w;
 }
 

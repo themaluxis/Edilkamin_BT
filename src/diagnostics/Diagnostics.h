@@ -39,6 +39,8 @@ struct DiagSnapshot {
   bool dataValid = false;
   bool ntpSynced = false;
   const char *logLevel = "INFO";
+  const char *otaSlot = "";     // running application partition label
+  bool otaPending = false;      // first boot after an update, not validated yet
 };
 
 // Escapes a string for use inside a JSON string literal. Returns chars written.

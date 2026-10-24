@@ -97,6 +97,7 @@ retained):
 | `boot_count`, `reset_reason`, `last_restart_cause` | reboot tracking (`last_restart_cause` is set by the firmware before an intentional restart: `wifi watchdog`, `ble watchdog`, `mqtt restart command`, `web restart`, `wifi credentials changed`) |
 | `last_error`, `last_error_at` | last error message and time |
 | `last_valid_at`, `data_valid`, `ntp_synced`, `log_level` | data freshness / time / logging |
+| `ota_slot`, `ota_pending` | running application slot (`app0`/`app1`) and whether the image still awaits validation after an update |
 
 ## Logs over MQTT
 

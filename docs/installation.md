@@ -46,12 +46,14 @@ restart loop).
 
 ## 4. Updating
 
-Flash the new binary over USB (WebFlash or `pio run -t upload`). The
-configuration is kept; files from v0.x / v1.1 are migrated automatically.
-Before flashing, download a backup from *Maintenance → Export JSON* on the
-web page. Network (OTA) updates are planned for v1.4, see
-[migration.md](migration.md); the *Firmware* card of the web page shows the
-running partition and whether a second OTA slot exists.
+* **From v1.4 on**: *Maintenance → Firmware → Install* on the web page with
+  the new `firmware.bin`. Two slots, automatic rollback, see [ota.md](ota.md).
+* **From v0.x–v1.3 to v1.4**: one last USB flash installs the two-slot
+  partition table. Export the configuration first, flash without erasing
+  (Wi-Fi credentials survive), set the admin password, import. Details in
+  [ota.md](ota.md#one-time-prerequisite-the-two-slot-partition-table).
+* USB (WebFlash or `pio run -t upload`) always remains possible and resets
+  the boot slot to `app0`.
 
 ## Running the unit tests
 
@@ -62,4 +64,5 @@ pio test -e native
 Builds the pure modules with the host compiler and runs the Unity suites in
 `test/` (protocol framing, decoders, command queue/factory, BLE state machine,
 controller lifecycle, configuration and its JSON codec, logger, diagnostics
-JSON, MD5 / HTTP digest authentication, login throttle).
+JSON, MD5 / HTTP digest authentication, login throttle, OTA image header and
+marker scanner).

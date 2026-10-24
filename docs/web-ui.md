@@ -41,7 +41,7 @@ and loads nothing from the Internet.
 | Settings | every key of [configuration.md](configuration.md) grouped by theme; the response says what was corrected (clamped) and whether a restart is needed |
 | Wi-Fi | current network and a scan-and-change form |
 | Log | the in-memory log buffer (48 lines), level selector (`DEBUG`/`TRACE` are temporary, 30 min), auto-refresh, download |
-| Maintenance | export / import JSON, restart, factory reset (type `ERASE`), firmware and partition information (OTA readiness) |
+| Maintenance | export / import JSON, restart, factory reset (type `ERASE`), firmware update over the network with rollback (see [ota.md](ota.md)), partition information |
 
 ### Which settings apply live
 
@@ -80,6 +80,9 @@ while no password is set, and `429` while throttled.
 | POST | `/api/factory-reset` | yes | `{"confirm":"ERASE"}` |
 | POST | `/api/wifi` | yes | `{"ssid","password"}` then restart |
 | GET | `/api/wifi/scan` | yes | `{"status":"scanning"}` until `{"status":"done","networks":[…]}` |
+| GET | `/api/update/info` | yes | slots, states, `pending_verify`, `can_rollback`, `ota_capable` |
+| POST | `/api/update` | yes | `multipart/form-data`, field `firmware`; answers `{ok,size,version,restarting}` or `400 {error}`; restarts 1.5 s later |
+| POST | `/api/update/rollback` | yes | boots the previous slot if valid, then restarts |
 
 Example with curl (digest):
 
@@ -88,6 +91,8 @@ curl --digest -u admin http://edilkaminble.local/api/status
 curl --digest -u admin -H 'Content-Type: application/json' \
      -d '{"log_level":4}' http://edilkaminble.local/api/config
 curl --digest -u admin -o backup.json http://edilkaminble.local/api/config/export
+curl --digest -u admin -F firmware=@.pio/build/wemos_d1_mini32/firmware.bin \
+     http://edilkaminble.local/api/update
 ```
 
 Request bodies are limited to 6 kB. The server is single-threaded and

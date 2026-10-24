@@ -18,10 +18,13 @@ This fork implements the **Enhanced** specification. Delivered so far:
 * **v1.3 Management** – local web administration at
   `http://edilkaminble.local/` with digest authentication: status, every
   setting, Wi-Fi change, log viewer, configuration export/import, restart,
-  factory reset. No USB needed after the first flash.
+  factory reset.
+* **v1.4 OTA** – firmware upload from the page, two application slots,
+  image checks and automatic rollback. One last USB flash installs the new
+  partition table (see `docs/ota.md`); after that no USB is needed.
 
 Topic names and Home Assistant entity ids from the original firmware are
-preserved. Next: v1.4 OTA updates (two-slot partition table).
+preserved. Next: v1.5 Home Assistant identity and discovery clean-up.
 
 See `docs/`:
 
@@ -30,6 +33,7 @@ See `docs/`:
 | [installation.md](docs/installation.md) | flashing, first configuration, building, running the tests |
 | [configuration.md](docs/configuration.md) | every configuration key, portal fields, runtime controls |
 | [web-ui.md](docs/web-ui.md) | local web administration: access, security model, pages, HTTP API |
+| [ota.md](docs/ota.md) | network updates: partition table, checks, rollback, recovery |
 | [mqtt-api.md](docs/mqtt-api.md) | topics, payloads, command results, diagnostics, HA entities |
 | [architecture.md](docs/architecture.md) | modules, BLE state machine, command lifecycle |
 | [troubleshooting.md](docs/troubleshooting.md) | remote diagnosis without USB |

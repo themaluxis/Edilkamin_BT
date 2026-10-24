@@ -31,6 +31,8 @@ src/
                ConfigJson      config <-> JSON, secret policy (export/import) [pure]
                ConfigStore     LittleFS persistence (atomic write, migration)[esp32]
   diagnostics/ Diagnostics     diagnostics JSON, last-error tracker          [pure]
+  ota/         OtaImage        image header check, firmware marker scanner   [pure]
+               OtaManager      Update wrapper, slots, pending-verify/rollback [esp32]
   web/         DigestAuth      RFC 2617 digest, nonces, login throttle       [pure]
                WebAdmin        WebServer routes: status, config, log, maint. [esp32]
                WebAssets.h     generated: gzip of web/index.html
@@ -83,6 +85,10 @@ from `loop()` after the HTTP answer has been flushed.
   lost is followed by a read that decides between `VERIFIED`, `FAILED` or
   (for ignition) `TIMEOUT` + status refresh. Retained MQTT commands are
   deleted before subscribing so a reboot can never replay an old `heat`.
+* **Updates never touch the stove** – an OTA rewrites the other flash slot,
+  the new image must prove itself (MQTT connected, 10 min uptime or an
+  intentional restart) before the bootloader stops protecting the previous
+  one. See [ota.md](ota.md).
 * **No reboot loops** – losing MQTT, Wi-Fi or the stove is a *state*, not a
   reason to restart. Optional watchdogs (`wifi_reboot_after_min`,
   `ble_reboot_after_min`) are long, off by default for BLE, and record their

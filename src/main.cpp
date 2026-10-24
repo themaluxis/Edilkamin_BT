@@ -25,6 +25,7 @@
 #include "mqtt/Discovery.h"
 #include "mqtt/MqttManager.h"
 #include "mqtt/Topics.h"
+#include "ota/OtaManager.h"
 #include "protocol/Decoders.h"
 #include "stove/StoveController.h"
 #include "web/WebAdmin.h"
@@ -49,6 +50,7 @@ static WiFiClient net;
 static MqttManager mqtt;
 static BleManager ble;
 static WebAdmin web;
+static OtaManager ota;
 static Preferences prefs;
 static ErrorTracker lastError;
 
@@ -154,6 +156,7 @@ static void mqttSink(LogLevel, const char *line, void *) {
 // ---------------------------------------------------------------------------
 static void restartWithCause(const char *cause) {
   EDK_LOGW(kTag, "restarting: %s", cause);
+  ota.markValid("intentional restart"); // never roll back on a user restart
   prefs.putString("cause", cause);
   if (mqtt.connected()) {
     mqtt.publish(topics.make(topicBuf, sizeof(topicBuf), "availability/state"),
@@ -336,6 +339,8 @@ static void publishDiagnostics(bool force) {
   d.dataValid = g_ctl->dataValid();
   d.ntpSynced = ntpSynced;
   d.logLevel = logLevelName(logger().level());
+  d.otaSlot = ota.runningLabel();
+  d.otaPending = ota.pendingVerify();
   size_t n = buildDiagnosticsJson(d, payloadBuf, sizeof(payloadBuf));
   if (n >= sizeof(payloadBuf)) {
     EDK_LOGW(kTag, "diagnostics JSON truncated");
@@ -435,6 +440,7 @@ static WebAdmin::Hooks webHooks();
 static void startWebAdmin() {
   if (!cfg.webEnabled || web.running() || !WiFi.isConnected())
     return;
+  web.setOta(&ota);
   web.begin(cfg, store, webHooks(), FW_VERSION);
   if (!mdnsActive) {
     mdnsActive = MDNS.begin(kHostname);
@@ -488,7 +494,14 @@ static size_t webStatusJson(char *buf, size_t n, void *) {
   uint32_t partSize = 0;
   sys["partition"] = runningPartitionLabel(partSize);
   sys["partition_size"] = partSize;
-  sys["ota_capable"] = esp_ota_get_next_update_partition(nullptr) != nullptr;
+  sys["ota_capable"] = ota.otaCapable();
+  {
+    OtaManager::Info oi = ota.info();
+    sys["ota_pending"] = oi.pendingVerify;
+    sys["ota_other_slot"] = oi.next;
+    sys["ota_other_state"] = oi.otherState;
+    sys["ota_can_rollback"] = oi.canRollBack;
+  }
   sys["uptime_s"] = millis() / 1000UL;
   sys["free_heap"] = ESP.getFreeHeap();
   sys["min_free_heap"] = ESP.getMinFreeHeap();
@@ -630,6 +643,7 @@ static void webFactoryReset(void *) { factoryReset("web request"); }
 
 static void webSetWifi(const char *ssid, const char *pass, void *) {
   EDK_LOGW(kTag, "storing new Wi-Fi credentials for '%s' and restarting", ssid);
+  ota.markValid("Wi-Fi change");
   prefs.putString("cause", "wifi credentials changed");
   if (mqtt.connected())
     mqtt.publish(topics.make(topicBuf, sizeof(topicBuf), "availability/state"),
@@ -764,6 +778,7 @@ static void onMqttConnected(void *) {
 // restarts into the setup access point. Used by the boot button and the web UI.
 static void factoryReset(const char *origin) {
   EDK_LOGW(kTag, "factory reset (%s)", origin);
+  ota.markValid("factory reset");
   if (mqtt.connected())
     mqtt.publish(topics.make(topicBuf, sizeof(topicBuf), "availability/state"),
                  "OFFLINE", true, true);
@@ -954,6 +969,7 @@ void setup() {
   loadConfig();
   logger().setLevel((LogLevel)cfg.logLevel);
   topics.configure(cfg.topicPrefix, cfg.deviceId);
+  ota.begin();
 
   WiFi.setHostname(kHostname);
   runWifiManager();
@@ -1034,6 +1050,8 @@ void loop() {
   if (!web.running() && cfg.webEnabled && WiFi.isConnected())
     startWebAdmin();
   web.loop(now);
+  if (ota.tick(now, mqtt.connected()))
+    publishDiagnostics(true); // image just validated: refresh ota_pending
 
   if (!ntpSynced && timeIsSynced()) {
     ntpSynced = true;

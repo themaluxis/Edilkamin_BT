@@ -1,5 +1,10 @@
-# Name,   Type, SubType, Offset,  Size, Flags
-nvs,      data, nvs,     0x9000,  0x5000,
-otadata,  data, ota,     0xe000,  0x2000,
-app0,     app,  ota_0,   0x10000, 0x250000,
-spiffs,   data, spiffs,  0x260000,0x1A0000,
+# Two application slots for OTA with rollback (4 MB flash).
+# nvs keeps its v0.x/v1.x offset, so Wi-Fi credentials and counters survive
+# the one-time USB flash that installs this table. LittleFS moves: export the
+# configuration from the web page before flashing, import it afterwards.
+# Name,     Type, SubType, Offset,   Size,     Flags
+nvs,        data, nvs,     0x9000,   0x5000,
+otadata,    data, ota,     0xe000,   0x2000,
+app0,       app,  ota_0,   0x10000,  0x1E0000,
+app1,       app,  ota_1,   0x1F0000, 0x1E0000,
+littlefs,   data, spiffs,  0x3D0000, 0x30000,

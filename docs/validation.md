@@ -53,3 +53,16 @@ lines. A successful build is not a hardware pass for this scenario.
 | W7 | Switch *Web administration* off in Home Assistant | port 80 closed within a second; switch on restores it without reboot |
 | W8 | 48 h with the status tab open in a browser (5 s refresh) | `min_free_heap` stays stable (no leak), BLE sessions unaffected |
 | W9 | Request while a BLE connection is in progress | answer delayed by at most the connection timeout, no reset, no stove command lost |
+
+## OTA (v1.4)
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| O1 | USB flash of v1.4 over a v1.3 module without erasing | Wi-Fi rejoins by itself, page asks for a password, import restores settings, *OTA capable: yes* |
+| O2 | Upload the same `firmware.bin` from the page | checks pass, version shown, reboot into the other slot, `ota_slot` toggles, `ota_pending` true then false once MQTT connects, diagnostics refreshed |
+| O3 | Upload a LittleFS image, a random file, an ESP32-S3 image, a truncated firmware | each refused with the documented reason; running firmware untouched; no reset |
+| O4 | Upload a build with a deliberate crash in `setup()` | bootloader rolls back at the first reset; previous version answers again; other slot state `aborted` |
+| O5 | Upload a build whose MQTT is broken on purpose, do nothing | still running after 10 min and validated (no silent rollback without a reset); manual rollback works |
+| O6 | Power cut during the upload | old firmware boots; next upload succeeds |
+| O7 | Upload while a BLE session is active | transfer completes; session resumes or restarts after; no command lost or duplicated |
+| O8 | WebFlash the v1.4 manifest on a module currently booting `app1` | boots `app0`, configuration kept |

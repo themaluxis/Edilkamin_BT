@@ -87,6 +87,19 @@ that the stove will accept a connection or that its BLE signal is reliable.
 The log (*Log* tab or `log` topic) shows `WEB: auth failed from <ip>` for
 rejected logins and `configuration updated via web` for applied changes.
 
+## Firmware update problems
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| *Install* button disabled, help text says *Single application slot* | The module still runs the old partition table; flash v1.4 once over USB (see [ota.md](ota.md)) |
+| *current image not validated yet* | First boot after an update: wait for MQTT or 10 minutes, or restart once from the page to validate it, then upload |
+| *not an Edilkamin_BT Enhanced firmware (marker missing)* | Wrong file (another project, a pre-v1.4 build, a LittleFS image) |
+| *image built for another chip* | A build for ESP32-S3/C3; this board is a plain ESP32 |
+| *image verification failed* | Truncated or corrupted upload; retry, check the file size against the build output |
+| Page never comes back after the countdown, old version answers again | The new image crashed before validation and the bootloader rolled back; the other slot shows `aborted`. Check the serial log of the new build before retrying |
+| New version runs but MQTT never connects | It will roll back only on a reset; the image validates itself after 10 minutes of uptime. Use *Roll back to previous firmware* if you prefer the old one |
+| After a WebFlash the module still runs the OTA version | Old manifests did not write `boot_app0.bin`; use the current WebFlash page or `pio run -t upload`, both reset the boot slot to `app0` |
+
 ## Raise the log level remotely
 
 1. Set the *Log level* select (or publish on `log_level/set`) to `DEBUG` or

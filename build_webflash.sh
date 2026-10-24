@@ -57,7 +57,15 @@ BOOTLOADER="$BUILD_DIR/bootloader.bin"
 PARTITIONS="$BUILD_DIR/partitions.bin"
 FIRMWARE="$BUILD_DIR/firmware.bin"
 
-for f in "$BOOTLOADER" "$PARTITIONS" "$FIRMWARE"; do
+# otadata image selecting app0 (ota_0). Mandatory with the two-slot partition
+# table: without it a module that was OTA-updated to app1 would keep booting
+# app1 after a WebFlash of app0.
+BOOT_APP0="$(ls -d "$HOME"/.platformio/packages/framework-arduinoespressif32*/tools/partitions/boot_app0.bin 2>/dev/null | head -n 1 || true)"
+if [[ -z "$BOOT_APP0" || ! -f "$BOOT_APP0" ]]; then
+  echo "Error: boot_app0.bin not found in the Arduino-ESP32 framework package."
+  exit 1
+fi
+for f in "$BOOTLOADER" "$PARTITIONS" "$FIRMWARE" "$BOOT_APP0"; do
   if [[ ! -f "$f" ]]; then
     echo "Error: Expected file not found: $f"
     echo "Check that the PlatformIO environment '$ENV_NAME' is correct."
@@ -76,6 +84,7 @@ mkdir -p "$WEBFLASH_DIR"
 
 cp "$BOOTLOADER" "$WEBFLASH_DIR/bootloader.bin"
 cp "$PARTITIONS" "$WEBFLASH_DIR/partitions.bin"
+cp "$BOOT_APP0"  "$WEBFLASH_DIR/boot_app0.bin"
 cp "$FIRMWARE"  "$WEBFLASH_DIR/firmware.bin"
 
 echo "Copied build files into $WEBFLASH_DIR/"
@@ -94,6 +103,7 @@ cat > "$MANIFEST_PATH" <<EOF
       "parts": [
         { "path": "bootloader.bin", "offset": 4096 },
         { "path": "partitions.bin", "offset": 32768 },
+        { "path": "boot_app0.bin",  "offset": 57344 },
         { "path": "firmware.bin",  "offset": 65536 }
       ]
     }
@@ -115,6 +125,7 @@ fi
 
 git add "$WEBFLASH_DIR/bootloader.bin" \
         "$WEBFLASH_DIR/partitions.bin" \
+        "$WEBFLASH_DIR/boot_app0.bin" \
         "$WEBFLASH_DIR/firmware.bin" \
         "$MANIFEST_PATH"
 

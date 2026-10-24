@@ -13,6 +13,7 @@
 #include "config/AppConfig.h"
 #include "config/ConfigStore.h"
 #include "core/Log.h"
+#include "ota/OtaManager.h"
 #include "web/DigestAuth.h"
 #include <ArduinoJson.h>
 #include <WebServer.h>
@@ -40,6 +41,7 @@ public:
 
   void begin(AppConfig &cfg, ConfigStore &store, const Hooks &hooks,
              const char *fwVersion);
+  void setOta(OtaManager *ota) { ota_ = ota; }
   void loop(uint32_t now);
   void stop();
   bool running() const { return running_; }
@@ -54,7 +56,11 @@ public:
 
 private:
   enum class Pending : uint8_t { None, Restart, FactoryReset, Wifi, Stop };
+  enum class Auth : uint8_t { Ok, Throttled, SetupRequired, Missing, Stale, Bad };
+  enum class UploadState : uint8_t { Idle, Denied, Writing, Done, Failed };
 
+  Auth checkAuth(uint32_t now);
+  void respondAuth(Auth a, uint32_t now);
   bool authorize();
   void sendJson(int code, const char *json);
   void sendError(int code, const char *error);
@@ -75,6 +81,10 @@ private:
   void handleFactoryReset();
   void handleWifi();
   void handleWifiScan();
+  void handleUpdateInfo();
+  void handleUpdateUpload();
+  void handleUpdateDone();
+  void handleRollback();
   void handleNotFound();
 
   WebServer server_{80};
@@ -91,6 +101,10 @@ private:
   uint32_t pendingAt_ = 0;
   char pendingSsid_[33] = "";
   char pendingPass_[64] = "";
+  OtaManager *ota_ = nullptr;
+  UploadState upload_ = UploadState::Idle;
+  Auth uploadAuth_ = Auth::Missing;
+  char uploadError_[128] = "";
 };
 
 } // namespace edk
