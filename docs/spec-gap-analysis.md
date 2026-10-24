@@ -3,7 +3,8 @@
 Ce document confronte le cahier des charges (CDC) du 24 octobre 2026 au code
 réel du dépôt, puis indique ce que livrent les itérations réalisées (périmètre
 P0 : v1.1 *Reliability* + v1.2 *Diagnostics*, puis v1.3 *Management*,
-v1.4 *OTA* et v1.5 *Home Assistant*) et ce qui reste à faire.
+v1.4 *OTA*, v1.5 *Home Assistant* et v2.0 *Advanced Control*) et ce qui
+reste à faire.
 
 ## 1. Vérification de l'audit (CDC §2) sur le firmware d'origine (commit `714ce29`)
 
@@ -68,14 +69,20 @@ Toutes les entités du tableau sont exposées, y compris *Puissance* en `select`
 ### HA04 — Commandes prédictibles (P1) ✅
 Séquence HA → validation → envoi → écho → relecture → publication confirmée ; en cas d'échec l'ancienne valeur reste la référence et `command/result` + `last_error` expliquent pourquoi.
 
-### HA05 / F08 / F09 (P2) ⬜
-Non commencés ; `StoveProfile` et `Registers.h` préparent F08/F09.
+### HA05 — Thermostat sur sonde externe (P2) ✅ mode A (v2.0)
+Module pur `ExternalThermostat` (7 tests) : consigne externe + hystérésis configurable, le poêle garde sa propre régulation et ses sécurités (seule la consigne est déplacée, jamais `heat`/`off`), bornes profil et ±4 °C autour de la cible, cadence minimale entre ajustements, validité de la mesure (par défaut 10 min) avec **mode de secours** (restauration unique de la consigne d'origine puis attente), aucune action après redémarrage tant qu'aucune mesure fraîche n'est reçue. Entités HA : interrupteur, `number` consigne, `number` mesure (alimenté par une automatisation), capteur d'état. Mode B évalué et non retenu (justification dans `docs/external-thermostat.md`).
+
+### F08 — Profils de poêle (P2) ✅ configurable (v2.0)
+Registre de profils (`generic` validé, `custom` entièrement paramétrable : plage de consigne, niveaux de puissance et de ventilation, mode auto, nombre de ventilateurs 1–3) appliqué au climate, au `select` puissance, au thermostat externe et à la validation des commandes ; application à chaud. Pas de preset par modèle faute de données validées : procédure de contribution documentée (`docs/compatibility.md`).
+
+### F09 — Fonctions The Mind supplémentaires (P2) 🟡 étude + expérimental (v2.0)
+Étude dans `docs/the-mind-registers.md` : registres validés / expérimentaux / non supportés et pourquoi (AirKare : l'expérience antérieure écrivait chrono/automatique/format de température, aucun registre AirKare identifié ; tables chrono trop grandes pour les trames de 32 octets ; commandes de service volontairement non exposées). Lecture **expérimentale** (option `exp_registers`, désactivée par défaut) d'alarme `0x02E6`, granulés restants `0x02EC`, version contrôleur `0x0032`, ventilateurs 2/3 `0x052A`, publiée en valeurs brutes (catégorie diagnostic). Mot d'état brut `status_raw` toujours publié (§8 : aucune alarme masquée). **Outil de lecture de registre** (Web + MQTT, fonction 3 seulement, 1–3 registres, 1 lecture / 2 s) pour valider sur matériel sans reflasher. Aucune écriture nouvelle.
 
 ### §8 Sécurité ✅
 Commandes retenues effacées avant abonnement ; aucune commande émise au démarrage ; pas de réémission d'ordre sensible ; états d'alarme non masqués (statut inconnu journalisé, dernier statut valide conservé) ; interfaces de debug fermées par défaut ; comportement explicite en cas d'indisponibilité MQTT/BLE ; interface d'administration authentifiée (Digest, hash seul stocké, verrouillée sans mot de passe, anti-force-brute, désactivable) et dépourvue de toute commande vers le poêle (la page ne pilote pas le poêle, uniquement l'ESP32).
 
 ### §9 Tests 🟡
-65 tests unitaires natifs (trames, CRC, conversions, validation MQTT, file, topics, machine à états BLE, cycle de vie des commandes, configurations invalides, codec JSON de configuration et politique des secrets, logger, JSON de diagnostic, MD5 et Digest RFC 2617 (vecteur de référence), nonces, limitation de connexion, en-tête d'image OTA et scanner de marqueur). Les scénarios d'intégration du §9.2 sont décrits dans `docs/validation.md` et **restent à exécuter sur un poêle réel**.
+76 tests unitaires natifs (trames, CRC, conversions, validation MQTT, file, topics, machine à états BLE, cycle de vie des commandes, configurations invalides, codec JSON de configuration et politique des secrets, logger, JSON de diagnostic, MD5 et Digest RFC 2617 (vecteur de référence), nonces, limitation de connexion, en-tête d'image OTA et scanner de marqueur, thermostat externe, profils, outil de lecture de registre et sondage expérimental). Les scénarios d'intégration du §9.2 sont décrits dans `docs/validation.md` et **restent à exécuter sur un poêle réel**.
 
 ## 3. Choix et écarts à valider avec le propriétaire du projet
 
@@ -102,4 +109,5 @@ Commandes retenues effacées avant abonnement ; aucune commande émise au démar
 | v1.3 Management | **livré** : `WebServer` du core (synchrone, pas de dépendance supplémentaire), authentification Digest, édition complète, journal, export/import, Wi-Fi, redémarrage, reset usine. Firmware : 1 307 677 octets (53,9 % du slot actuel), +63 Ko | — |
 | v1.4 OTA | **livré** : voir F06. Reste à faire sur matériel : scénarios O1–O8 de `docs/validation.md` (dont le rollback réel sur une image qui plante) | v1.3 |
 | v1.5 Home Assistant | **livré** : voir HA02/HA03. Non retenu : entité HA `update` (pas de serveur de versions en local) ; `number` consigne externe reporté en v2.0 avec HA05. À valider sur matériel : scénarios H1–H7 | v1.4 |
-| v2.0 | thermostat externe (HA05, mode A : consigne externe + hystérésis, jamais au-dessus des sécurités du poêle), profils par modèle (F08, détection ou sélection), AirKare / ventilateurs 2-3 / alarmes après validation des registres (F09) | v1.5 |
+| v2.0 | **livré** : voir HA05 / F08 / F09. À valider sur matériel : T1–T7 et R1–R5 de `docs/validation.md` | v1.5 |
+| Suite | portail non bloquant (F07), presets de profils par modèle et sémantique des registres expérimentaux dès retours matériels, campagne de 48 h (§9.3) | retours terrain |

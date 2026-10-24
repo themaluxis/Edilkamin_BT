@@ -160,6 +160,23 @@ int validateConfig(AppConfig &cfg, char *notes, size_t notesLen) {
   fixes += clampField<uint16_t>(cfg.diagIntervalS, 10, 3600, "diag_interval_s", notes, notesLen);
   if (cfg.wifiRebootAfterMin != 0)
     fixes += clampField<uint16_t>(cfg.wifiRebootAfterMin, 5, 1440, "wifi_reboot_after_min", notes, notesLen);
+  // profile
+  if (strcmp(cfg.stoveProfile, "generic") != 0 && strcmp(cfg.stoveProfile, "custom") != 0) {
+    copyStr(cfg.stoveProfile, sizeof(cfg.stoveProfile), "generic");
+    fixes++;
+  }
+  fixes += clampField<int16_t>(cfg.profMinTempTenths, 50, 250, "prof_min_temp", notes, notesLen);
+  fixes += clampField<int16_t>(cfg.profMaxTempTenths, (int16_t)(cfg.profMinTempTenths + 10), 400, "prof_max_temp", notes, notesLen);
+  fixes += clampField<uint8_t>(cfg.profPowerLevels, 1, 5, "prof_power_levels", notes, notesLen);
+  fixes += clampField<uint8_t>(cfg.profFanLevels, 1, 5, "prof_fan_levels", notes, notesLen);
+  fixes += clampField<uint8_t>(cfg.profFanCount, 1, 3, "prof_fan_count", notes, notesLen);
+  // external thermostat
+  fixes += clampField<int16_t>(cfg.extSetpointTenths, cfg.profMinTempTenths, cfg.profMaxTempTenths, "ext_setpoint", notes, notesLen);
+  fixes += clampField<int16_t>(cfg.extHysteresisTenths, 1, 30, "ext_hysteresis", notes, notesLen);
+  fixes += clampField<uint16_t>(cfg.extSensorMaxAgeS, 60, 3600, "ext_sensor_max_age_s", notes, notesLen);
+  fixes += clampField<uint16_t>(cfg.extMinIntervalS, 60, 3600, "ext_min_interval_s", notes, notesLen);
+  fixes += clampField<int16_t>(cfg.extBoostTenths, 5, 50, "ext_boost", notes, notesLen);
+  fixes += clampField<int16_t>(cfg.extReliefTenths, 0, 50, "ext_relief", notes, notesLen);
   if (!normalizeHostname(cfg.hostname, sizeof(cfg.hostname)))
     fixes++;
   if (cfg.hostname[0] == '\0') {

@@ -1,5 +1,6 @@
 #include "config/AppConfig.h"
 #include "config/ConfigJson.h"
+#include "stove/StoveProfiles.h"
 #include "core/Md5.h"
 #include "core/Strings.h"
 #include "web/DigestAuth.h"
@@ -269,6 +270,67 @@ void test_config_validation_hostname() {
   TEST_ASSERT_TRUE(b.featStandby);
 }
 
+void test_profiles_and_thermostat_config() {
+  AppConfig c;
+  TEST_ASSERT_TRUE(isKnownProfile("generic"));
+  TEST_ASSERT_FALSE(isKnownProfile("slide3"));
+  StoveProfile g = buildProfile(c);
+  TEST_ASSERT_EQUAL_STRING("generic", g.name);
+  TEST_ASSERT_EQUAL_INT16(150, g.minTargetTenths);
+  TEST_ASSERT_FALSE(g.hasFan2);
+  copyStr(c.stoveProfile, sizeof(c.stoveProfile), "custom");
+  c.profMinTempTenths = 120;
+  c.profMaxTempTenths = 260;
+  c.profPowerLevels = 3;
+  c.profFanLevels = 4;
+  c.profFanAuto = false;
+  c.profFanCount = 3;
+  c.featChrono = false;
+  StoveProfile p = buildProfile(c);
+  TEST_ASSERT_EQUAL_STRING("custom", p.name);
+  TEST_ASSERT_EQUAL_INT16(120, p.minTargetTenths);
+  TEST_ASSERT_EQUAL_INT16(260, p.maxTargetTenths);
+  TEST_ASSERT_EQUAL_UINT8(3, p.powerLevels);
+  TEST_ASSERT_EQUAL_UINT8(4, p.fanLevels);
+  TEST_ASSERT_FALSE(p.fanAutoSupported);
+  TEST_ASSERT_TRUE(p.hasFan2 && p.hasFan3);
+  TEST_ASSERT_FALSE(p.hasChrono);
+  // validation clamps profile and thermostat values, unknown profile → generic
+  AppConfig d;
+  copyStr(d.stoveProfile, sizeof(d.stoveProfile), "slide3");
+  d.profMinTempTenths = 10;
+  d.profMaxTempTenths = 5;
+  d.profFanCount = 9;
+  d.extSetpointTenths = 400;
+  d.extHysteresisTenths = 0;
+  d.extSensorMaxAgeS = 5;
+  char notes[256];
+  int fixes = validateConfig(d, notes, sizeof(notes));
+  TEST_ASSERT_TRUE(fixes >= 6);
+  TEST_ASSERT_EQUAL_STRING("generic", d.stoveProfile);
+  TEST_ASSERT_EQUAL_INT16(50, d.profMinTempTenths);
+  TEST_ASSERT_EQUAL_INT16(60, d.profMaxTempTenths);
+  TEST_ASSERT_EQUAL_UINT8(3, d.profFanCount);
+  TEST_ASSERT_EQUAL_INT16(60, d.extSetpointTenths); // within profile range
+  TEST_ASSERT_EQUAL_INT16(1, d.extHysteresisTenths);
+  TEST_ASSERT_EQUAL_UINT16(60, d.extSensorMaxAgeS);
+  // JSON round trip of the new keys, including a negative int16
+  AppConfig e;
+  e.extEnabled = true;
+  e.extSetpointTenths = 215;
+  e.extReliefTenths = 0;
+  e.profMinTempTenths = 100;
+  JsonDocument doc;
+  configToJson(e, doc.to<JsonObject>(), ConfigSecrets::Omit);
+  AppConfig f;
+  ConfigApplyResult r = configFromJson(doc.as<JsonObjectConst>(), f, false);
+  TEST_ASSERT_EQUAL_INT(0, r.unknown);
+  TEST_ASSERT_TRUE(f.extEnabled);
+  TEST_ASSERT_EQUAL_INT16(215, f.extSetpointTenths);
+  TEST_ASSERT_EQUAL_INT16(0, f.extReliefTenths);
+  TEST_ASSERT_EQUAL_INT16(100, f.profMinTempTenths);
+}
+
 void test_config_validation_admin_fields() {
   AppConfig c;
   copyStr(c.adminUser, sizeof(c.adminUser), " ad:min ");
@@ -299,6 +361,7 @@ int main(int, char **) {
   RUN_TEST(test_config_json_roundtrip_and_secrets);
   RUN_TEST(test_config_json_legacy_and_bad_types);
   RUN_TEST(test_config_validation_hostname);
+  RUN_TEST(test_profiles_and_thermostat_config);
   RUN_TEST(test_config_validation_admin_fields);
   return UNITY_END();
 }

@@ -37,6 +37,9 @@ public:
     void (*restart)(const char *cause, void *ctx) = nullptr;
     void (*factoryReset)(void *ctx) = nullptr;
     void (*setWifi)(const char *ssid, const char *pass, void *ctx) = nullptr;
+    // Diagnostic register read; returns false with a message when refused.
+    bool (*readRegister)(uint16_t reg, uint8_t count, char *msg, size_t msgLen,
+                         void *ctx) = nullptr;
   };
 
   void begin(AppConfig &cfg, ConfigStore &store, const Hooks &hooks,
@@ -81,6 +84,7 @@ private:
   void handleFactoryReset();
   void handleWifi();
   void handleWifiScan();
+  void handleRegisterRead();
   void handleUpdateInfo();
   void handleUpdateUpload();
   void handleUpdateDone();

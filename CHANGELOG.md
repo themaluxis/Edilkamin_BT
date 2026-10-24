@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — v2.0 "Advanced Control" (HA05 / F08 / F09 of the Enhanced spec)
+
+### Added
+- External thermostat, mode A: regulates from a Home Assistant sensor by moving the stove setpoint only (never `heat`/`off`), with hysteresis, profile and ±4 °C clamps, rate limit, sensor validity with one-shot restore of the previous setpoint, no action after a reboot until a fresh measurement. Entities: switch, external setpoint and external temperature numbers, status sensor. `docs/external-thermostat.md` includes the automation example and the Mode B evaluation.
+- Stove profiles: `generic` (validated) or `custom` (setpoint range, power/fan levels, fan auto, 1–3 fans), applied live to the climate card, the Power select, the thermostat limits and command validation.
+- Experimental registers (`exp_registers`, off by default): alarm `0x02E6`, pellets remaining `0x02EC`, controller version `0x0032`, fans 2/3 `0x052A` as raw diagnostic sensors. `status_raw` sensor always published so unknown status words are visible.
+- Diagnostic register read tool (web page and `register_read/set`): function 3 only, 1–3 registers, rate limited, result on `register/result`.
+- `docs/the-mind-registers.md`: validated / experimental / unsupported registers, including why the old AirKare experiment toggled chrono and automatic instead.
+- Schema v5; 76 native tests (thermostat, profiles, register tool, experimental polling).
+
 ## Unreleased — v1.5 "Home Assistant" (HA02/HA03 of the Enhanced spec)
 
 ### Added

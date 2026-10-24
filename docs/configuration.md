@@ -1,6 +1,6 @@
 # Configuration
 
-Configuration lives in `/config.json` on the LittleFS partition (schema 4).
+Configuration lives in `/config.json` on the LittleFS partition (schema 5).
 The captive portal (`Edilkamin_BT_AP`) edits the common fields; **every** key
 can be edited from the local web page (`http://edilkaminble.local/`, see
 [web-ui.md](web-ui.md)), which also exports and imports the file.
@@ -36,7 +36,7 @@ POSIX TZ string daylight saving time is handled automatically.
 
 | Key | Type | Default | Range / notes |
 |-----|------|---------|---------------|
-| `schema` | int | 4 | written by the firmware |
+| `schema` | int | 5 | written by the firmware |
 | `mqtt_server` | string | | ≤ 63 chars |
 | `mqtt_port` | int | 1883 | 1–65535 |
 | `mqtt_user`, `mqtt_pass` | string | | ≤ 47 / 63 chars |
@@ -48,6 +48,18 @@ POSIX TZ string daylight saving time is handled automatically.
 | `hostname` | string | `edilkaminble` | mDNS name, `a-z 0-9 -`, 1–31 chars |
 | `ha_published_prefix`, `ha_published_id` | string | | bookkeeping: identity last published to HA; do not edit |
 | `feat_relax`, `feat_standby`, `feat_chrono` | bool | true | expose the switch in HA (off = removed, command refused); applied live |
+| `stove_profile` | string | `generic` | `generic` (validated ranges) or `custom` (values below); applied live |
+| `prof_min_temp_tenths`, `prof_max_temp_tenths` | int | 150, 300 | custom profile setpoint range, 5.0–40.0 °C |
+| `prof_power_levels`, `prof_fan_levels` | int | 5, 5 | 1–5 |
+| `prof_fan_auto` | bool | true | fan *Auto* mode offered |
+| `prof_fan_count` | int | 1 | 1–3; ≥ 2 reads the fan 2/3 register when experimental registers are on |
+| `exp_registers` | bool | false | poll experimental registers as raw diagnostic sensors ([the-mind-registers.md](the-mind-registers.md)) |
+| `ext_enabled` | bool | false | external thermostat, mode A ([external-thermostat.md](external-thermostat.md)) |
+| `ext_setpoint_tenths` | int | 200 | room target, within the profile range |
+| `ext_hysteresis_tenths` | int | 5 | 1–30 |
+| `ext_sensor_max_age_s` | int | 600 | 60–3600; older measurement = sensor lost |
+| `ext_min_interval_s` | int | 300 | 60–3600 between two setpoint adjustments |
+| `ext_boost_tenths`, `ext_relief_tenths` | int | 20, 10 | 5–50 / 0–50, offsets around the stove probe |
 | `stove_mac` | string | | `AA:BB:CC:DD:EE:FF`, empty = auto |
 | `ble_enabled` | bool | true | also changed by `bluetooth/set` |
 | `ble_session_s` | int | 30 | 10–3600 |

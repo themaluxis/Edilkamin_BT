@@ -38,6 +38,12 @@ enum class Observable : uint8_t {
   Chrono,
   Pellet,
   PowerOn,
+  StatusRaw,          // raw main status word, always observed (alarms visible)
+  Alarm,              // experimental (F09)
+  Fan2,
+  Fan3,
+  PelletRemaining,
+  ControllerVersion,
   Count
 };
 
@@ -69,6 +75,13 @@ struct StoveState {
   Observed<bool> chrono;
   Observed<PelletLevel> pellet;
   Observed<bool> powerOn; // derived: stove is (being) lit
+  Observed<uint16_t> statusRaw;         // (hi << 8) | lo of 0x02E4
+  // experimental registers, raw values until their semantics are validated
+  Observed<uint16_t> alarmRaw;          // 0x02E6
+  Observed<uint8_t> fan2;               // 0x052A high byte
+  Observed<uint8_t> fan3;               // 0x052A low byte
+  Observed<uint16_t> pelletRemainingRaw; // 0x02EC
+  Observed<uint16_t> controllerVersionRaw; // 0x0032
 
   bool hasValidResponse = false;
   uint32_t lastValidResponseAt = 0;

@@ -1,4 +1,4 @@
-// Persistent configuration (schema v4) with validation. Pure struct; the
+// Persistent configuration (schema v5) with validation. Pure struct; the
 // LittleFS/JSON persistence lives in ConfigStore (platform layer).
 #pragma once
 #include <cstddef>
@@ -7,7 +7,7 @@
 namespace edk {
 
 struct AppConfig {
-  static constexpr uint8_t kSchemaVersion = 4;
+  static constexpr uint8_t kSchemaVersion = 5;
   uint8_t schemaVersion = kSchemaVersion;
 
   // network
@@ -34,6 +34,27 @@ struct AppConfig {
   bool featRelax = true;
   bool featStandby = true;
   bool featChrono = true;
+
+  // capability profile (F08): "generic" or "custom" (values below)
+  char stoveProfile[16] = "generic";
+  int16_t profMinTempTenths = 150;
+  int16_t profMaxTempTenths = 300;
+  uint8_t profPowerLevels = 5;
+  uint8_t profFanLevels = 5;
+  bool profFanAuto = true;
+  uint8_t profFanCount = 1; // 1..3; >= 2 enables the fan 2/3 register
+  // experimental registers (F09): alarm, pellets remaining, fans 2/3,
+  // controller version; raw values, off by default
+  bool expRegisters = false;
+
+  // external thermostat (HA05, mode A)
+  bool extEnabled = false;
+  int16_t extSetpointTenths = 200;
+  int16_t extHysteresisTenths = 5;
+  uint16_t extSensorMaxAgeS = 600;
+  uint16_t extMinIntervalS = 300;
+  int16_t extBoostTenths = 20;
+  int16_t extReliefTenths = 10;
 
   // bluetooth
   char stoveMac[18] = "";       // "" = first stove advertising the service

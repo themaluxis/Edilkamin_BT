@@ -58,6 +58,27 @@ void StoveController::handleUserCommand(const char *entity,
   enqueueUser(cmd);
 }
 
+void StoveController::readRegister(uint16_t reg, uint8_t count, uint32_t now) {
+  Command cmd;
+  if (!buildRegisterRead(reg, count, now, cmd)) {
+    stats_.commandsRejected++;
+    cmd.type = CommandType::ReadRegister;
+    cmd.source = CommandSource::User;
+    snprintf(cmd.payload, sizeof(cmd.payload), "0x%04X,%u", reg, count);
+    cmd.id = queue_.nextId();
+    report(cmd, CommandState::Rejected, "count must be 1..3");
+    return;
+  }
+  if (!bleEnabled_) {
+    stats_.commandsRejected++;
+    cmd.id = queue_.nextId();
+    report(cmd, CommandState::Rejected, "bluetooth disabled");
+    return;
+  }
+  EDK_LOGI(kTag, "register read 0x%04X x%u", reg, count);
+  enqueueUser(cmd);
+}
+
 void StoveController::enqueueUser(Command cmd) {
   if (cmd.id == 0)
     cmd.id = queue_.nextId();
@@ -97,6 +118,10 @@ void StoveController::setLinkReady(bool ready, uint32_t now) {
       // keep it for the next session
       c.state = CommandState::Validated;
       queue_.enqueue(c);
+    } else if (c.source == CommandSource::User) {
+      stats_.requestsTimeout++;
+      stats_.commandsFailed++;
+      report(c, CommandState::Failed, "link lost before answer");
     } else {
       stats_.requestsTimeout++;
     }
@@ -104,15 +129,33 @@ void StoveController::setLinkReady(bool ready, uint32_t now) {
   queue_.removeBySource(CommandSource::Poll);
 }
 
+uint8_t StoveController::buildPollList(CommandType *out) const {
+  uint8_t n = 0;
+  for (uint8_t i = 0; i < kPollCount; i++)
+    out[n++] = kPollOrder[i];
+  if (cfg_.pollExperimental) {
+    out[n++] = CommandType::ReadAlarm;
+    out[n++] = CommandType::ReadPelletRemaining;
+    if (cfg_.fanCount >= 2)
+      out[n++] = CommandType::ReadFan23;
+    out[n++] = CommandType::ReadControllerVersion;
+  }
+  return n;
+}
+
 void StoveController::enqueuePollIfDue(uint32_t now) {
   if (queue_.hasPending())
     return;
   if ((uint32_t)(now - lastPollAt_) < cfg_.pollIntervalMs)
     return;
+  CommandType list[kMaxPoll];
+  uint8_t n = buildPollList(list);
+  if (pollIndex_ >= n)
+    pollIndex_ = 0;
   Command c;
-  if (!buildReadCommand(kPollOrder[pollIndex_], CommandSource::Poll, now, c))
+  if (!buildReadCommand(list[pollIndex_], CommandSource::Poll, now, c))
     return;
-  pollIndex_ = (uint8_t)((pollIndex_ + 1) % kPollCount);
+  pollIndex_ = (uint8_t)((pollIndex_ + 1) % n);
   lastPollAt_ = now;
   queue_.enqueue(c);
 }
@@ -168,6 +211,9 @@ void StoveController::handleTimeout(uint32_t now) {
     scheduleVerify(c, now);
   } else if (c.source == CommandSource::Verify) {
     finishVerification(c, false, "verification read timed out");
+  } else if (c.source == CommandSource::User) {
+    stats_.commandsFailed++;
+    report(c, CommandState::Failed, "no answer from stove");
   }
 }
 
@@ -265,6 +311,7 @@ void StoveController::handleReadResponse(const ModbusResponse &r,
   uint16_t v = r.regValue(0);
   switch (c.type) {
   case CommandType::ReadMainStatus: {
+    observe(state_.statusRaw, v, Observable::StatusRaw, now);
     StoveStatus s = decodeMainStatus(r.hi(0), r.lo(0));
     if (s == StoveStatus::Unknown) {
       EDK_LOGW(kTag, "unknown status combination %u/%u", r.hi(0), r.lo(0));
@@ -324,6 +371,34 @@ void StoveController::handleReadResponse(const ModbusResponse &r,
       observe(state_.pellet, p, Observable::Pellet, now);
     break;
   }
+  case CommandType::ReadAlarm:
+    observe(state_.alarmRaw, v, Observable::Alarm, now);
+    break;
+  case CommandType::ReadFan23:
+    observe(state_.fan2, r.hi(0), Observable::Fan2, now);
+    observe(state_.fan3, r.lo(0), Observable::Fan3, now);
+    break;
+  case CommandType::ReadPelletRemaining:
+    observe(state_.pelletRemainingRaw, v, Observable::PelletRemaining, now);
+    break;
+  case CommandType::ReadControllerVersion:
+    observe(state_.controllerVersionRaw, v, Observable::ControllerVersion, now);
+    break;
+  case CommandType::ReadRegister: {
+    uint16_t vals[4];
+    uint8_t n = (uint8_t)(r.byteCount / 2);
+    if (n > 4)
+      n = 4;
+    for (uint8_t i = 0; i < n; i++)
+      vals[i] = r.regValue(i);
+    events_.onRegisterRead(c.reg, n, vals);
+    char detail[64];
+    int w = snprintf(detail, sizeof(detail), "0x%04X =", c.reg);
+    for (uint8_t i = 0; i < n && w < (int)sizeof(detail) - 8; i++)
+      w += snprintf(detail + w, sizeof(detail) - w, " 0x%04X", vals[i]);
+    report(c, CommandState::Verified, detail);
+    break;
+  }
   default:
     break;
   }
@@ -380,6 +455,9 @@ void StoveController::onFrame(const uint8_t plain[kBleBlockSize],
       report(done, CommandState::Failed, reason);
     } else if (done.source == CommandSource::Verify) {
       finishVerification(done, false, reason);
+    } else if (done.source == CommandSource::User) {
+      stats_.commandsFailed++;
+      report(done, CommandState::Failed, reason);
     }
     return;
   }

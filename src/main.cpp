@@ -16,6 +16,7 @@
 #include <time.h>
 
 #include "ble/BleManager.h"
+#include "commands/CommandFactory.h"
 #include "config/AppConfig.h"
 #include "config/ConfigStore.h"
 #include "core/Log.h"
@@ -27,7 +28,9 @@
 #include "mqtt/Topics.h"
 #include "ota/OtaManager.h"
 #include "protocol/Decoders.h"
+#include "stove/ExternalThermostat.h"
 #include "stove/StoveController.h"
+#include "stove/StoveProfiles.h"
 #include "web/WebAdmin.h"
 
 #ifndef FW_VERSION
@@ -51,6 +54,7 @@ static MqttManager mqtt;
 static BleManager ble;
 static WebAdmin web;
 static OtaManager ota;
+static ExternalThermostat thermostat;
 static Preferences prefs;
 static ErrorTracker lastError;
 
@@ -70,6 +74,9 @@ static bool mdnsActive = false;
 
 static char topicBuf[96];
 static char payloadBuf[1024];
+static char lastRegisterResult[160] = "";
+static uint32_t lastRegisterReadAt = 0;
+static uint32_t lastThermostatTickAt = 0;
 
 // ---------------------------------------------------------------------------
 // Time helpers
@@ -101,6 +108,7 @@ static uint32_t uptimeMs() { return millis(); }
 static void applyLogLevel(LogLevel level);
 static void mqttSink(LogLevel, const char *line, void *);
 static void factoryReset(const char *origin);
+static void publishThermostatState(bool force);
 
 static const char *resetReasonName(esp_reset_reason_t r) {
   switch (r) {
@@ -284,6 +292,42 @@ static void publishObservable(const StoveState &s, Observable what,
     if (s.powerOn.known)
       pubState("hvac_mode", s.powerOn.value ? "heat" : "off", true, force);
     break;
+  case Observable::StatusRaw:
+    if (s.statusRaw.known) {
+      snprintf(num, sizeof(num), "0x%04X", s.statusRaw.value);
+      pubState("status_raw", num, true, force);
+    }
+    break;
+  case Observable::Alarm:
+    if (s.alarmRaw.known && cfg.expRegisters) {
+      snprintf(num, sizeof(num), "0x%04X", s.alarmRaw.value);
+      pubState("alarm_raw", num, true, force);
+    }
+    break;
+  case Observable::Fan2:
+    if (s.fan2.known && cfg.expRegisters) {
+      snprintf(num, sizeof(num), "%u", (unsigned)s.fan2.value);
+      pubState("fan2_raw", num, true, force);
+    }
+    break;
+  case Observable::Fan3:
+    if (s.fan3.known && cfg.expRegisters) {
+      snprintf(num, sizeof(num), "%u", (unsigned)s.fan3.value);
+      pubState("fan3_raw", num, true, force);
+    }
+    break;
+  case Observable::PelletRemaining:
+    if (s.pelletRemainingRaw.known && cfg.expRegisters) {
+      snprintf(num, sizeof(num), "%u", (unsigned)s.pelletRemainingRaw.value);
+      pubState("pellet_remaining_raw", num, true, force);
+    }
+    break;
+  case Observable::ControllerVersion:
+    if (s.controllerVersionRaw.known && cfg.expRegisters) {
+      snprintf(num, sizeof(num), "0x%04X", s.controllerVersionRaw.value);
+      pubState("controller_version_raw", num, true, force);
+    }
+    break;
   default:
     break;
   }
@@ -298,6 +342,7 @@ static void publishAllStates(bool force) {
   pubRaw("data_valid/state", g_ctl->dataValid() ? "ONLINE" : "OFFLINE", true, force);
   pubRaw("log_level/state", logLevelName(logger().level()), true, force);
   pubRaw("web_admin/state", cfg.webEnabled ? "ON" : "OFF", true, force);
+  publishThermostatState(force);
   publishBleState(force);
   publishLastUpdate(force);
 }
@@ -399,6 +444,15 @@ public:
     publishDiagnostics(true);
   }
   void onUserCommandQueued() override { ble.requestSession(millis()); }
+  void onRegisterRead(uint16_t reg, uint8_t count, const uint16_t *values) override {
+    char json[160];
+    int w = snprintf(json, sizeof(json), "{\"reg\":\"0x%04X\",\"count\":%u,\"values\":[", reg, count);
+    for (uint8_t i = 0; i < count && w < (int)sizeof(json) - 12; i++)
+      w += snprintf(json + w, sizeof(json) - w, "%s\"0x%04X\"", i ? "," : "", values[i]);
+    snprintf(json + w, sizeof(json) - w, "]}");
+    pubRaw("register/result", json, false, true);
+    copyStr(lastRegisterResult, sizeof(lastRegisterResult), json);
+  }
 };
 
 static Events events;
@@ -406,10 +460,49 @@ static StoveProfile g_profile; // generic profile adjusted by feat_* settings
 static StoveController controller(ble, events, g_profile);
 
 static void applyProfileFromConfig() {
-  g_profile = defaultProfile();
-  g_profile.hasRelax = cfg.featRelax;
-  g_profile.hasStandby = cfg.featStandby;
-  g_profile.hasChrono = cfg.featChrono;
+  g_profile = buildProfile(cfg);
+  StoveController::Config cc = controller.config();
+  cc.pollExperimental = cfg.expRegisters;
+  cc.fanCount = cfg.profFanCount;
+  controller.configure(cc);
+}
+
+static ExtThermostatConfig thermostatConfigFromCfg() {
+  ExtThermostatConfig t;
+  t.enabled = cfg.extEnabled;
+  t.setpointTenths = cfg.extSetpointTenths;
+  t.hysteresisTenths = cfg.extHysteresisTenths;
+  t.sensorMaxAgeMs = (uint32_t)cfg.extSensorMaxAgeS * 1000UL;
+  t.minAdjustIntervalMs = (uint32_t)cfg.extMinIntervalS * 1000UL;
+  t.boostTenths = cfg.extBoostTenths;
+  t.reliefTenths = cfg.extReliefTenths;
+  t.minTenths = g_profile.minTargetTenths;
+  t.maxTenths = g_profile.maxTargetTenths;
+  t.stepTenths = g_profile.targetStepTenths;
+  return t;
+}
+
+static void publishThermostatState(bool force) {
+  char num[16];
+  pubRaw("ext_thermostat/state", cfg.extEnabled ? "ON" : "OFF", true, force);
+  pubRaw("ext_setpoint/state", formatTenths(cfg.extSetpointTenths, num, sizeof(num)), true, force);
+  if (thermostat.haveExternal())
+    pubRaw("ext_temperature/state", formatTenths(thermostat.externalTenths(), num, sizeof(num)), true, force);
+  const char *status;
+  switch (thermostat.state()) {
+  case ExtState::Regulating:
+    status = thermostat.demand() == ExtDemand::Heat ? "heat" : "idle";
+    break;
+  case ExtState::WaitingSensor:
+    status = "waiting_sensor";
+    break;
+  case ExtState::SensorLost:
+    status = "sensor_lost";
+    break;
+  default:
+    status = "disabled";
+  }
+  pubRaw("ext_status/state", status, true, force);
 }
 
 // ---------------------------------------------------------------------------
@@ -463,6 +556,7 @@ static void publishDiscoveryNow() {
   dc.espMac = espMac;
   dc.configUrl = configUrl;
   dc.hwVersion = kHwVersion;
+  dc.experimental = cfg.expRegisters;
   publishDiscovery(mqtt, dc);
 }
 
@@ -511,6 +605,16 @@ static void setWebEnabled(bool enabled) {
   else
     web.stop();
   pubRaw("web_admin/state", enabled ? "ON" : "OFF", true, true);
+}
+
+static void setThermostatEnabled(bool on) {
+  if (cfg.extEnabled != on) {
+    cfg.extEnabled = on;
+    store.save(cfg);
+  }
+  thermostat.setEnabled(on, millis());
+  EDK_LOGI(kTag, "external thermostat %s", on ? "enabled" : "disabled");
+  publishThermostatState(true);
 }
 
 static const char *runningPartitionLabel(uint32_t &size) {
@@ -634,6 +738,25 @@ static size_t webStatusJson(char *buf, size_t n, void *) {
   c["wifi_reconnects"] = wifiReconnects;
   c["web_auth_failures"] = web.authFailures();
 
+  JsonObject th = doc["thermostat"].to<JsonObject>();
+  th["enabled"] = cfg.extEnabled;
+  th["state"] = extStateName(thermostat.state());
+  th["demand"] = extDemandName(thermostat.demand());
+  th["setpoint_tenths"] = cfg.extSetpointTenths;
+  if (thermostat.haveExternal()) {
+    th["external_tenths"] = thermostat.externalTenths();
+    th["external_age_s"] = thermostat.externalAgeMs(millis()) / 1000UL;
+    th["sensor_valid"] = thermostat.sensorValid(millis());
+  }
+  if (thermostat.baseKnown())
+    th["base_tenths"] = thermostat.baseTenths();
+  doc["profile"] = g_profile.name;
+  doc["exp_registers"] = cfg.expRegisters;
+  if (lastRegisterResult[0]) {
+    JsonDocument rr;
+    if (deserializeJson(rr, lastRegisterResult) == DeserializationError::Ok)
+      doc["last_register_read"] = rr;
+  }
   doc["last_error"] = lastError.message();
   char isoErr[32];
   doc["last_error_at"] = isoTime(lastErrorWall, isoErr, sizeof(isoErr));
@@ -666,7 +789,22 @@ static bool webApplyConfig(const AppConfig &next, bool &restartRequired,
       strcmp(next.hostname, cur.hostname) != 0;
   bool featuresChanged = next.featRelax != cur.featRelax ||
                          next.featStandby != cur.featStandby ||
-                         next.featChrono != cur.featChrono;
+                         next.featChrono != cur.featChrono ||
+                         strcmp(next.stoveProfile, cur.stoveProfile) != 0 ||
+                         next.profMinTempTenths != cur.profMinTempTenths ||
+                         next.profMaxTempTenths != cur.profMaxTempTenths ||
+                         next.profPowerLevels != cur.profPowerLevels ||
+                         next.profFanLevels != cur.profFanLevels ||
+                         next.profFanAuto != cur.profFanAuto ||
+                         next.profFanCount != cur.profFanCount ||
+                         next.expRegisters != cur.expRegisters;
+  bool thermostatChanged = next.extEnabled != cur.extEnabled ||
+                           next.extSetpointTenths != cur.extSetpointTenths ||
+                           next.extHysteresisTenths != cur.extHysteresisTenths ||
+                           next.extSensorMaxAgeS != cur.extSensorMaxAgeS ||
+                           next.extMinIntervalS != cur.extMinIntervalS ||
+                           next.extBoostTenths != cur.extBoostTenths ||
+                           next.extReliefTenths != cur.extReliefTenths;
 
   // live changes
   if (next.bleEnabled != cur.bleEnabled) {
@@ -688,12 +826,19 @@ static bool webApplyConfig(const AppConfig &next, bool &restartRequired,
   }
   if (next.webEnabled != cur.webEnabled)
     pubRaw("web_admin/state", next.webEnabled ? "ON" : "OFF", true, true);
-  if (featuresChanged) {
-    g_profile.hasRelax = next.featRelax;
-    g_profile.hasStandby = next.featStandby;
-    g_profile.hasChrono = next.featChrono;
-    if (mqtt.connected())
-      publishDiscoveryNow(); // adds or removes the switches immediately
+  if (featuresChanged || thermostatChanged) {
+    AppConfig saved = cfg;
+    cfg = next; // the helpers below read the global configuration
+    applyProfileFromConfig();
+    if (thermostatChanged) {
+      thermostat.configure(thermostatConfigFromCfg());
+      publishThermostatState(true);
+    } else {
+      thermostat.configure(thermostatConfigFromCfg()); // profile limits
+    }
+    if (featuresChanged && mqtt.connected())
+      publishDiscoveryNow(); // adds or removes entities immediately
+    cfg = saved; // WebAdmin assigns the final value itself
   }
   return true;
 }
@@ -716,8 +861,24 @@ static void webSetWifi(const char *ssid, const char *pass, void *) {
   ESP.restart();
 }
 
+static bool webReadRegister(uint16_t reg, uint8_t count, char *msg, size_t msgLen, void *) {
+  uint32_t now = millis();
+  if ((uint32_t)(now - lastRegisterReadAt) < 2000UL) {
+    copyStr(msg, msgLen, "one register read every 2 s");
+    return false;
+  }
+  if (!cfg.bleEnabled) {
+    copyStr(msg, msgLen, "bluetooth disabled");
+    return false;
+  }
+  lastRegisterReadAt = now;
+  controller.readRegister(reg, count, now);
+  return true;
+}
+
 static WebAdmin::Hooks webHooks() {
   WebAdmin::Hooks h;
+  h.readRegister = webReadRegister;
   h.statusJson = webStatusJson;
   h.applyConfig = webApplyConfig;
   h.setLogLevel = webSetLogLevel;
@@ -796,6 +957,74 @@ static void onMqttMessage(const char *topic, const char *payload, void *) {
   if (strcmp(entity, "log_dump") == 0) {
     EDK_LOGI(kTag, "dumping %u buffered log lines", (unsigned)logger().count());
     logger().dump(dumpLogLine, nullptr);
+    return;
+  }
+  if (strcmp(entity, "ext_thermostat") == 0) {
+    bool on = strcmp(payload, "ON") == 0;
+    if (!on && strcmp(payload, "OFF") != 0)
+      return;
+    setThermostatEnabled(on);
+    return;
+  }
+  if (strcmp(entity, "ext_setpoint") == 0) {
+    int16_t tenths;
+    if (!parseTemperatureTenths(payload, tenths) || tenths < g_profile.minTargetTenths ||
+        tenths > g_profile.maxTargetTenths) {
+      EDK_LOGW(kTag, "external setpoint '%s' refused", payload);
+      return;
+    }
+    if (cfg.extSetpointTenths != tenths) {
+      cfg.extSetpointTenths = tenths;
+      thermostat.setSetpoint(tenths);
+      store.save(cfg);
+    }
+    publishThermostatState(true);
+    return;
+  }
+  if (strcmp(entity, "ext_temperature") == 0) {
+    int16_t tenths;
+    char buf[16];
+    copyStr(buf, sizeof(buf), payload);
+    bool neg = buf[0] == '-';
+    if (!parseTemperatureTenths(neg ? buf + 1 : buf, tenths)) {
+      EDK_LOGW(kTag, "external temperature '%s' refused", payload);
+      return;
+    }
+    if (neg)
+      tenths = (int16_t)-tenths;
+    if (tenths < -300 || tenths > 600) {
+      EDK_LOGW(kTag, "external temperature %d out of range", tenths);
+      return;
+    }
+    thermostat.onExternalTemp(tenths, now);
+    publishThermostatState(false);
+    return;
+  }
+  if (strcmp(entity, "register_read") == 0) {
+    // "0x02E6" or "0x02E6,2" — read-only diagnostic tool, rate limited
+    unsigned regv = 0, count = 1;
+    if (sscanf(payload, "%x,%u", &regv, &count) < 1 || regv > 0xFFFF) {
+      EDK_LOGW(kTag, "register_read '%s' refused", payload);
+      return;
+    }
+    if ((uint32_t)(now - lastRegisterReadAt) < 2000UL) {
+      EDK_LOGW(kTag, "register_read throttled");
+      return;
+    }
+    lastRegisterReadAt = now;
+    controller.readRegister((uint16_t)regv, (uint8_t)count, now);
+    return;
+  }
+  if (strcmp(entity, "target_temperature") == 0 && cfg.extEnabled) {
+    EDK_LOGW(kTag, "target_temperature refused: external thermostat active");
+    char json[200];
+    snprintf(json, sizeof(json),
+             "{\"id\":0,\"type\":\"SET_TARGET_TEMP\",\"entity\":\"target_temperature\","
+             "\"payload\":\"%.12s\",\"state\":\"REJECTED\",\"reason\":"
+             "\"external thermostat active: use the External setpoint entity\"}",
+             payload);
+    pubRaw("command/result", json, false, true);
+    publishObservable(controller.state(), Observable::TargetTemp, true);
     return;
   }
   if (strcmp(entity, "discovery_republish") == 0) {
@@ -1003,7 +1232,8 @@ static void setupMqtt() {
       "hvac_mode", "fan_mode", "preset_mode", "target_temperature", "relax",
       "automatic_mode", "chrono_mode", "standby", "bluetooth", "log_level",
       "log_dump", "diagnostics_reset", "restart", "web_admin", "power",
-      "discovery_republish"};
+      "discovery_republish", "ext_thermostat", "ext_setpoint", "ext_temperature",
+      "register_read"};
   char t[96];
   for (const char *e : commandEntities)
     mqtt.addSubscription(topics.set(t, sizeof(t), e), true);
@@ -1038,6 +1268,7 @@ void setup() {
   logger().setLevel((LogLevel)cfg.logLevel);
   topics.configure(cfg.topicPrefix, cfg.deviceId);
   applyProfileFromConfig();
+  thermostat.configure(thermostatConfigFromCfg());
   ota.begin();
 
   WiFi.setHostname(cfg.hostname);
@@ -1121,6 +1352,27 @@ void loop() {
   web.loop(now);
   if (ota.tick(now, mqtt.connected()))
     publishDiagnostics(true); // image just validated: refresh ota_pending
+
+  if ((uint32_t)(now - lastThermostatTickAt) >= 5000UL) {
+    lastThermostatTickAt = now;
+    const StoveState &s = controller.state();
+    ExtInputs in;
+    in.stoveRoomKnown = s.roomTempTenths.known;
+    in.stoveRoomTenths = s.roomTempTenths.value;
+    in.stoveSetpointKnown = s.targetTempTenths.known;
+    in.stoveSetpointTenths = s.targetTempTenths.value;
+    ExtState before = thermostat.state();
+    ExtDemand demandBefore = thermostat.demand();
+    ExtAction act = thermostat.tick(now, in);
+    if (act.write) {
+      char num[16];
+      formatTenths(act.setpointTenths, num, sizeof(num));
+      EDK_LOGI(kTag, "%s -> target %s", act.reason, num);
+      controller.handleUserCommand("target_temperature", num, now);
+    }
+    if (before != thermostat.state() || demandBefore != thermostat.demand())
+      publishThermostatState(false);
+  }
 
   if (!ntpSynced && timeIsSynced()) {
     ntpSynced = true;

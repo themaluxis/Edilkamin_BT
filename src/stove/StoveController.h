@@ -30,6 +30,13 @@ struct IStoveEvents {
   virtual void onValidResponse(uint32_t now) { (void)now; }
   virtual void onError(const char *message) { (void)message; }
   virtual void onUserCommandQueued() {}
+  // Result of a diagnostic register read requested with readRegister().
+  virtual void onRegisterRead(uint16_t reg, uint8_t count,
+                              const uint16_t *values) {
+    (void)reg;
+    (void)count;
+    (void)values;
+  }
 };
 
 class StoveController {
@@ -41,6 +48,8 @@ public:
     uint32_t dataMaxAgeMs = 360000;
     uint32_t interCommandGapMs = 100;
     uint8_t readRetries = 1; // extra attempts for reads only
+    bool pollExperimental = false; // F09 registers (alarm, fans 2/3, ...)
+    uint8_t fanCount = 1;          // >= 2 adds the fan 2/3 register
   };
 
   struct Stats {
@@ -62,6 +71,9 @@ public:
 
   // Commands coming from MQTT: entity = topic segment, payload = text.
   void handleUserCommand(const char *entity, const char *payload, uint32_t now);
+  // Diagnostic read of 1..3 registers (function 3 only, user priority).
+  // Outcome: events.onRegisterRead + a command/result entry.
+  void readRegister(uint16_t reg, uint8_t count, uint32_t now);
   // Commands are refused while BLE is administratively disabled.
   void setBleEnabled(bool enabled) { bleEnabled_ = enabled; }
 
@@ -94,6 +106,8 @@ public:
 private:
   static constexpr uint8_t kPollCount = 10;
   static const CommandType kPollOrder[kPollCount];
+  static constexpr uint8_t kMaxPoll = 16;
+  uint8_t buildPollList(CommandType *out) const;
 
   void report(Command &cmd, CommandState st, const char *reason = "");
   void enqueueUser(Command cmd);

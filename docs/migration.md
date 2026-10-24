@@ -6,10 +6,11 @@
 * Home Assistant discovery topics and `unique_id`s → entity ids are kept.
 * The captive portal, the WebFlash procedure and the Wemos D1 Mini ESP32 as
   reference board.
-* `config.json` is read and migrated (schema 1 → 4); no re-configuration
+* `config.json` is read and migrated (schema 1 → 5); no re-configuration
   needed. v1.3 adds `web_enabled`, `admin_user`, `admin_hash`; v1.5 adds
-  `hostname`, `feat_*` and the discovery identity bookkeeping, all with
-  defaults that keep the current behaviour.
+  `hostname`, `feat_*` and the discovery identity bookkeeping; v2.0 adds the
+  profile, experimental and external-thermostat keys. All defaults keep the
+  previous behaviour (thermostat and experimental registers off).
 * The historical `device_id` `322707E4` is kept on upgraded modules. Only a
   module without configuration file (fresh flash with erase, factory reset)
   gets a MAC-derived id.

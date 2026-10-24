@@ -38,17 +38,18 @@ and loads nothing from the Internet.
 | Tab | Content |
 |-----|---------|
 | Status | stove values (status, temperatures, power/fan, modes, pellets, last valid answer), connectivity (Wi-Fi, MQTT, BLE, last error), system (firmware, uptime, heap, time, boots, log level), counters; refreshed every 5 s |
-| Settings | every key of [configuration.md](configuration.md) grouped by theme (MQTT, identity incl. hostname, time, Bluetooth, stove features, data, logging, administration); the response says what was corrected (clamped) and whether a restart is needed |
+| Settings | every key of [configuration.md](configuration.md) grouped by theme (MQTT, identity incl. hostname, time, Bluetooth, stove features, stove profile, experimental, external thermostat, data, logging, administration); the response says what was corrected (clamped) and whether a restart is needed |
 | Wi-Fi | current network and a scan-and-change form |
 | Log | the in-memory log buffer (48 lines), level selector (`DEBUG`/`TRACE` are temporary, 30 min), auto-refresh, download |
-| Maintenance | export / import JSON, restart, factory reset (type `ERASE`), firmware update over the network with rollback (see [ota.md](ota.md)), partition information |
+| Maintenance | export / import JSON, restart, factory reset (type `ERASE`), diagnostic register read ([the-mind-registers.md](the-mind-registers.md)), firmware update over the network with rollback (see [ota.md](ota.md)), partition information |
 
 ### Which settings apply live
 
 Applied immediately: Bluetooth enabled, log levels, data validity, command
 expiry, diagnostics interval, watchdog delays, administrator credentials,
-web enabled, stove features (the Home Assistant switches appear or disappear
-at once). Everything else (MQTT broker, NTP/timezone, topics, device id,
+web enabled, stove features, stove profile, experimental registers and the
+external thermostat (the Home Assistant entities appear or disappear at
+once). Everything else (MQTT broker, NTP/timezone, topics, device id,
 hostname, stove MAC, BLE timings, telnet) is saved and flagged **Restart
 required**; the status page shows a banner with a restart button until the
 ESP32 reboots.
@@ -85,6 +86,7 @@ while no password is set, and `429` while throttled.
 | GET | `/api/update/info` | yes | slots, states, `pending_verify`, `can_rollback`, `ota_capable` |
 | POST | `/api/update` | yes | `multipart/form-data`, field `firmware`; answers `{ok,size,version,restarting}` or `400 {error}`; restarts 1.5 s later |
 | POST | `/api/update/rollback` | yes | boots the previous slot if valid, then restarts |
+| POST | `/api/register/read` | yes | `{"reg":"0x02E6","count":1}`; queued, result on `register/result` and in `/api/status` (`last_register_read`) |
 
 Example with curl (digest):
 

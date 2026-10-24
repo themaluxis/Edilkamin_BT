@@ -54,6 +54,10 @@ online, so they stay visible while the stove is unreachable.
 | `fan_mode/state` | `Auto`, `20%`, `40%`, `60%`, `80%`, `100%` |
 | `preset_mode/state` | `Auto`, `Man. P1` … `Man. P5` |
 | `power/state` | `P1` … `P5` (power level alone, for the *Power* select) |
+| `status_raw/state` | raw main status word, e.g. `0x0202` (unknown combinations stay visible) |
+| `ext_thermostat/state`, `ext_setpoint/state`, `ext_temperature/state`, `ext_status/state` | external thermostat, see [external-thermostat.md](external-thermostat.md) |
+| `alarm_raw/state`, `pellet_remaining_raw/state`, `controller_version_raw/state`, `fan2_raw/state`, `fan3_raw/state` | experimental raw registers, only with `exp_registers`, see [the-mind-registers.md](the-mind-registers.md) |
+| `register/result` | not retained; answer of the register read tool |
 | `automatic_mode/state`, `relax/state`, `standby/state`, `chrono_mode/state` | `ON` / `OFF` |
 | `pellet_level/state` | `Ok` / `Empty` |
 | `bluetooth/state` | `ON` / `OFF` – BLE *enabled* setting (persisted) |
@@ -88,6 +92,10 @@ retained `heat` can never ignite the stove after a reboot.
 | `diagnostics_reset/set` | `RESET` | resets counters and last error |
 | `restart/set` | `RESTART` | restarts the ESP32 (the stove is not touched) |
 | `discovery_republish/set` | `PUBLISH` | re-sends every discovery document and state (after deleting the device in Home Assistant, for instance) |
+| `ext_thermostat/set` | `ON`, `OFF` | external thermostat (mode A); persisted |
+| `ext_setpoint/set` | number in the profile range | room target for the external thermostat; persisted |
+| `ext_temperature/set` | number −30 … 60 | external measurement; must be refreshed within `ext_sensor_max_age_s` |
+| `register_read/set` | `0x02E6` or `0x02E6,2` | diagnostic read of 1–3 registers (function 3 only), one every 2 s |
 
 Anything else is rejected with a reason (see below) and counted in
 `commands_rejected`.
@@ -142,6 +150,10 @@ Secrets are never logged.
 | Status, Exhaust Temperature, Pellet Level | sensor | `status`, `thermocouple_temperature`, `pellet_level` | – |
 | Room Temperature | sensor | `room_temperature` | – |
 | Power | select | `power` | – |
+| External thermostat | switch | `ext_thermostat` | – |
+| External setpoint, External temperature | number | `ext_setpoint`, `ext_temperature` | – |
+| External thermostat status, Status (raw) | sensor | `ext_status`, `status_raw` | diagnostic |
+| Alarm code, Pellets remaining, Controller version, Fan 2, Fan 3 (all *exp.*) | sensor | `alarm_raw`, `pellet_remaining_raw`, `controller_version_raw`, `fan2_raw`, `fan3_raw` | diagnostic, only with `exp_registers` |
 | Bluetooth connect | switch | `bluetooth` | config |
 | Web administration | switch | `web_admin` | config |
 | Log level | select | `log_level` | config |

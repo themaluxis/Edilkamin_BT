@@ -29,7 +29,13 @@ struct Result {
   std::string reason;
 };
 
+struct RegRead {
+  uint16_t reg;
+  std::vector<uint16_t> values;
+};
+
 struct FakeEvents : IStoveEvents {
+  std::vector<RegRead> regReads;
   std::vector<Result> results;
   std::vector<Observable> changes;
   std::vector<bool> validity;
@@ -46,6 +52,9 @@ struct FakeEvents : IStoveEvents {
   void onValidResponse(uint32_t) override { validResponses++; }
   void onError(const char *m) override { errors.push_back(m); }
   void onUserCommandQueued() override { wakeups++; }
+  void onRegisterRead(uint16_t reg, uint8_t count, const uint16_t *v) override {
+    regReads.push_back({reg, std::vector<uint16_t>(v, v + count)});
+  }
   bool sawChange(Observable o) const {
     for (auto c : changes)
       if (c == o)
@@ -406,6 +415,94 @@ void test_automatic_and_pellet_paths() {
   TEST_ASSERT_EQUAL_HEX16(reg::FireplaceMainStatus, r.link.lastReg());
 }
 
+void test_status_raw_is_always_observed() {
+  Rig r;
+  r.ready();
+  r.respondRead({0x0905}); // unknown combination
+  TEST_ASSERT_TRUE(r.ev.sawChange(Observable::StatusRaw));
+  TEST_ASSERT_EQUAL_HEX16(0x0905, r.ctl.state().statusRaw.value);
+  TEST_ASSERT_FALSE(r.ctl.state().status.known); // label not invented
+}
+
+void test_register_read_tool() {
+  Rig r;
+  r.ready();
+  r.respondRead({0x0202});
+  r.ctl.readRegister(0x02E6, 2, r.now);
+  r.advance(100);
+  TEST_ASSERT_EQUAL_HEX16(0x02E6, r.link.lastReg());
+  TEST_ASSERT_FALSE(r.link.lastIsWrite());
+  TEST_ASSERT_EQUAL_UINT8(2, r.link.last()[5]); // count
+  r.respondRead({0x1234, 0x0001});
+  TEST_ASSERT_EQUAL_UINT32(1, r.ev.regReads.size());
+  TEST_ASSERT_EQUAL_HEX16(0x02E6, r.ev.regReads[0].reg);
+  TEST_ASSERT_EQUAL_UINT32(2, r.ev.regReads[0].values.size());
+  TEST_ASSERT_EQUAL_HEX16(0x1234, r.ev.regReads[0].values[0]);
+  const Result *res = r.ev.lastResultFor(CommandType::ReadRegister);
+  TEST_ASSERT_NOT_NULL(res);
+  TEST_ASSERT_EQUAL(CommandState::Verified, res->state);
+  TEST_ASSERT_NOT_NULL(strstr(res->reason.c_str(), "0x1234"));
+  // invalid count rejected, nothing sent
+  size_t sent = r.link.sent.size();
+  r.ctl.readRegister(0x02E6, 4, r.now);
+  r.advance(100);
+  TEST_ASSERT_EQUAL_UINT32(sent, r.link.sent.size());
+  TEST_ASSERT_EQUAL(CommandState::Rejected, r.ev.lastResultFor(CommandType::ReadRegister)->state);
+  // no answer: retried once, then FAILED with a result
+  r.ctl.readRegister(0x0032, 1, r.now);
+  r.advance(100);
+  r.advance(2000);
+  r.advance(2000);
+  TEST_ASSERT_EQUAL(CommandState::Failed, r.ev.lastResultFor(CommandType::ReadRegister)->state);
+  TEST_ASSERT_FALSE(r.ctl.busy());
+}
+
+void test_experimental_polls_only_when_enabled() {
+  Rig r;
+  r.ready();
+  std::vector<uint16_t> regs;
+  for (int i = 0; i < 12; i++) {
+    regs.push_back(r.link.lastReg());
+    if (r.link.last()[5] == 2)
+      r.respondRead({0x0202, 0x0000});
+    else
+      r.respondRead({0x0202});
+    r.advance(2000);
+  }
+  bool sawAlarm = false;
+  for (uint16_t x : regs)
+    if (x == reg::Alarm)
+      sawAlarm = true;
+  TEST_ASSERT_FALSE(sawAlarm);
+
+  Rig e;
+  StoveController::Config c = e.ctl.config();
+  c.pollExperimental = true;
+  c.fanCount = 3;
+  e.ctl.configure(c);
+  e.ready();
+  bool alarm = false, fan23 = false, version = false, pellets = false;
+  for (int i = 0; i < 16; i++) {
+    uint16_t x = e.link.lastReg();
+    alarm |= x == reg::Alarm;
+    fan23 |= x == reg::Fan23;
+    version |= x == reg::MotherboardAppVersion;
+    pellets |= x == reg::PelletRemaining;
+    if (x == reg::Fan23)
+      e.respondRead({0x0203});
+    else if (e.link.last()[5] == 2)
+      e.respondRead({0x0042, 0x0000});
+    else
+      e.respondRead({0x0042});
+    e.advance(2000);
+  }
+  TEST_ASSERT_TRUE(alarm && fan23 && version && pellets);
+  TEST_ASSERT_TRUE(e.ev.sawChange(Observable::Alarm));
+  TEST_ASSERT_EQUAL_UINT8(2, e.ctl.state().fan2.value);
+  TEST_ASSERT_EQUAL_UINT8(3, e.ctl.state().fan3.value);
+  TEST_ASSERT_TRUE(e.ctl.state().controllerVersionRaw.known);
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_polling_starts_with_status_and_updates_state);
@@ -422,5 +519,8 @@ int main(int, char **) {
   RUN_TEST(test_data_goes_stale);
   RUN_TEST(test_modbus_exception_fails_write);
   RUN_TEST(test_automatic_and_pellet_paths);
+  RUN_TEST(test_status_raw_is_always_observed);
+  RUN_TEST(test_register_read_tool);
+  RUN_TEST(test_experimental_polls_only_when_enabled);
   return UNITY_END();
 }

@@ -25,9 +25,13 @@ This fork implements the **Enhanced** specification. Delivered so far:
 * **v1.5 Home Assistant** – stable device identity with automatic clean-up
   when it changes, device links to the web page, *Power* select, per-module
   stove features, removal of obsolete v0.x entities.
+* **v2.0 Advanced Control** – external-sensor thermostat (setpoint mode,
+  stove safeties untouched), configurable stove profiles, experimental
+  register sensors and a register read tool for validating new functions.
 
 Topic names and Home Assistant entity ids from the original firmware are
-preserved on upgrade. Next: v2.0 (external thermostat, stove profiles).
+preserved on upgrade. Every lot of the specification is now implemented;
+what remains is hardware validation (see `docs/validation.md`).
 
 See `docs/`:
 
@@ -37,6 +41,8 @@ See `docs/`:
 | [configuration.md](docs/configuration.md) | every configuration key, portal fields, runtime controls |
 | [web-ui.md](docs/web-ui.md) | local web administration: access, security model, pages, HTTP API |
 | [ota.md](docs/ota.md) | network updates: partition table, checks, rollback, recovery |
+| [external-thermostat.md](docs/external-thermostat.md) | regulation from a Home Assistant sensor: behaviour, safety, automation example |
+| [the-mind-registers.md](docs/the-mind-registers.md) | register study, experimental sensors, register read tool |
 | [mqtt-api.md](docs/mqtt-api.md) | topics, payloads, command results, diagnostics, HA entities |
 | [architecture.md](docs/architecture.md) | modules, BLE state machine, command lifecycle |
 | [troubleshooting.md](docs/troubleshooting.md) | remote diagnosis without USB |

@@ -98,10 +98,36 @@ bool buildReadCommand(CommandType type, CommandSource source, uint32_t now,
   case CommandType::ReadWarningFlags:
     setPdu(out, false, reg::WarningFlags, 2);
     return true;
+  case CommandType::ReadAlarm:
+    setPdu(out, false, reg::Alarm, 1);
+    return true;
+  case CommandType::ReadFan23:
+    setPdu(out, false, reg::Fan23, 1);
+    return true;
+  case CommandType::ReadPelletRemaining:
+    setPdu(out, false, reg::PelletRemaining, 1);
+    return true;
+  case CommandType::ReadControllerVersion:
+    setPdu(out, false, reg::MotherboardAppVersion, 1);
+    return true;
   default:
     out = Command();
     return false;
   }
+}
+
+bool buildRegisterRead(uint16_t reg, uint8_t count, uint32_t now, Command &out) {
+  out = Command();
+  // 32 byte frames carry at most 3 registers in a read response.
+  if (count < 1 || count > 3)
+    return false;
+  out.type = CommandType::ReadRegister;
+  out.source = CommandSource::User;
+  out.createdAt = now;
+  out.state = CommandState::Validated;
+  snprintf(out.payload, sizeof(out.payload), "0x%04X,%u", reg, count);
+  setPdu(out, false, reg, count);
+  return true;
 }
 
 static bool reject(char *reason, size_t n, const char *msg) {

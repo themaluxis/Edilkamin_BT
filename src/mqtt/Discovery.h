@@ -18,6 +18,8 @@ struct DiscoveryContext {
   const char *espMac = "";     // ESP32 station MAC, "" to omit
   const char *configUrl = "";  // http://<ip>/ when the web page is enabled
   const char *hwVersion = "";  // board name
+  bool experimental = false;   // exp_registers: raw diagnostic sensors
+  bool extThermostat = true;   // publish the external thermostat entities
 };
 
 // Publishes every discovery document (retained). Returns the number sent.

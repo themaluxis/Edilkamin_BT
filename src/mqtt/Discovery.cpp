@@ -32,6 +32,11 @@ static const DiscoveryObject kObjects[] = {
     {"sensor", "requests_failed"}, {"select", "log_level"},
     {"button", "restart"}, {"button", "log_dump"}, {"button", "diagnostics_reset"},
     {"button", "discovery_republish"},
+    {"sensor", "status_raw"},
+    {"switch", "ext_thermostat"}, {"number", "ext_setpoint"}, {"number", "ext_temperature"},
+    {"sensor", "ext_status"},
+    {"sensor", "alarm_raw"}, {"sensor", "fan2_raw"}, {"sensor", "fan3_raw"},
+    {"sensor", "pellet_remaining_raw"}, {"sensor", "controller_version_raw"},
 };
 // Retained state topics owned by an identity.
 static const char *const kStateTopics[] = {
@@ -41,7 +46,11 @@ static const char *const kStateTopics[] = {
     "thermocouple_temperature/state", "status/state", "hvac_mode/state",
     "hvac_action/state", "fan_mode/state", "preset_mode/state", "power/state",
     "automatic_mode/state", "relax/state", "standby/state", "chrono_mode/state",
-    "pellet_level/state",
+    "pellet_level/state", "status_raw/state", "ext_thermostat/state",
+    "ext_setpoint/state", "ext_temperature/state", "ext_status/state",
+    "alarm_raw/state", "fan2_raw/state", "fan3_raw/state",
+    "pellet_remaining_raw/state", "controller_version_raw/state",
+    "register/result",
 };
 
 static void discoveryTopic(char *out, size_t n, const char *component,
@@ -263,6 +272,27 @@ struct Builder {
     send(doc, "binary_sensor", uid);
   }
 
+  void number(const char *name, const char *uid, const char *icon,
+              const char *cmdSuffix, const char *stateSuffix, double mn,
+              double mx, double step, const char *unit, const char *deviceClass,
+              const char *mode) {
+    JsonDocument doc;
+    common(doc, name, uid, false, false, nullptr);
+    if (icon)
+      doc["icon"] = icon;
+    doc["command_topic"] = t(2, cmdSuffix);
+    doc["state_topic"] = t(3, stateSuffix);
+    doc["min"] = mn;
+    doc["max"] = mx;
+    doc["step"] = step;
+    if (unit)
+      doc["unit_of_measurement"] = unit;
+    if (deviceClass)
+      doc["device_class"] = deviceClass;
+    doc["mode"] = mode;
+    send(doc, "number", uid);
+  }
+
   void button(const char *name, const char *uid, const char *icon,
               const char *cmdSuffix, const char *payload,
               const char *deviceClass, const char *category) {
@@ -369,6 +399,57 @@ struct Builder {
     button("Dump logs to MQTT", "log_dump", "mdi:text-long", "log_dump/set", "DUMP", nullptr, "diagnostic");
     button("Reset counters", "diagnostics_reset", "mdi:counter", "diagnostics_reset/set", "RESET", nullptr, "diagnostic");
     button("Republish discovery", "discovery_republish", "mdi:home-assistant", "discovery_republish/set", "PUBLISH", nullptr, "config");
+    // raw main status word: never masks an unknown/alarm combination
+    diagTopicSensor("Status (raw)", "status_raw", "mdi:code-brackets", "status_raw/state", nullptr);
+
+    // external thermostat (HA05, mode A): ESP-level entities
+    if (ctx.extThermostat) {
+      {
+        JsonDocument doc;
+        common(doc, "External thermostat", "ext_thermostat", false, false, nullptr);
+        doc["icon"] = "mdi:home-thermometer-outline";
+        doc["command_topic"] = t(2, "ext_thermostat/set");
+        doc["state_topic"] = t(3, "ext_thermostat/state");
+        doc["payload_on"] = "ON";
+        doc["payload_off"] = "OFF";
+        send(doc, "switch", "ext_thermostat");
+      }
+      number("External setpoint", "ext_setpoint", "mdi:thermostat", "ext_setpoint/set",
+             "ext_setpoint/state", ctx.profile->minTargetTenths / 10.0,
+             ctx.profile->maxTargetTenths / 10.0, ctx.profile->targetStepTenths / 10.0,
+             "°C", "temperature", "slider");
+      number("External temperature", "ext_temperature", "mdi:thermometer-lines",
+             "ext_temperature/set", "ext_temperature/state", -20.0, 50.0, 0.1, "°C",
+             "temperature", "box");
+      diagTopicSensor("External thermostat status", "ext_status", "mdi:thermostat-auto",
+                      "ext_status/state", nullptr);
+    } else {
+      remove("switch", "ext_thermostat");
+      remove("number", "ext_setpoint");
+      remove("number", "ext_temperature");
+      remove("sensor", "ext_status");
+    }
+
+    // experimental registers (F09): raw values, diagnostic category
+    struct Exp {
+      const char *name;
+      const char *uid;
+      const char *topic;
+      bool on;
+    };
+    const Exp exp[] = {
+        {"Alarm code (exp.)", "alarm_raw", "alarm_raw/state", ctx.experimental},
+        {"Pellets remaining (exp.)", "pellet_remaining_raw", "pellet_remaining_raw/state", ctx.experimental},
+        {"Controller version (exp.)", "controller_version_raw", "controller_version_raw/state", ctx.experimental},
+        {"Fan 2 (exp.)", "fan2_raw", "fan2_raw/state", ctx.experimental && ctx.profile->hasFan2},
+        {"Fan 3 (exp.)", "fan3_raw", "fan3_raw/state", ctx.experimental && ctx.profile->hasFan3},
+    };
+    for (const Exp &e : exp) {
+      if (e.on)
+        diagTopicSensor(e.name, e.uid, "mdi:flask-outline", e.topic, nullptr);
+      else
+        remove("sensor", e.uid);
+    }
   }
 };
 

@@ -78,3 +78,25 @@ lines. A successful build is not a hardware pass for this scenario.
 | H5 | Select P3 in *Power* | `power/set P3` → `VERIFIED`, `power/state P3`, climate preset shows `Man. P3` |
 | H6 | Delete the device in HA, press *Republish discovery* | device recreated with every entity and current states |
 | H7 | Change hostname to `stove-salon` | after restart `http://stove-salon.local/` answers, status page shows the name |
+
+## External thermostat (v2.0)
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| T1 | Enable the thermostat, no measurement published yet | status `waiting_sensor`, no command sent, climate setpoint unchanged |
+| T2 | Publish 18.0 with target 20.0, stove probe 21.0 | one `SET_TARGET_TEMP` to 23.0 (`VERIFIED`), status `heat`, stove starts modulating up on its own |
+| T3 | Publish 20.7 | after the minimum interval one write to probe − 1.0, status `idle`; no `off` command ever appears in `command/result` |
+| T4 | Stop publishing for 11 min | status `sensor_lost`, exactly one write restoring the setpoint noted at takeover, then silence |
+| T5 | Reboot the ESP32 with the thermostat enabled | nothing written until a fresh measurement arrives |
+| T6 | Change the climate setpoint from the card while enabled | `REJECTED external thermostat active`, card snaps back |
+| T7 | Disable the thermostat | previous setpoint restored once |
+
+## Experimental registers and register tool (v2.0)
+
+| # | Scenario | Expected |
+|---|----------|----------|
+| R1 | `register_read/set 0x02E4` | `register/result` within the session with the same word as `status_raw/state` |
+| R2 | `register_read/set 0x02F4,2` | two values, second byte matches the pellet state |
+| R3 | `register_read/set 0x02E6,4` | rejected (`count must be 1..3`), nothing sent |
+| R4 | Enable experimental registers | poll cycle grows by 3 (4 with 2+ fans), raw sensors appear in HA, `requests_ok` keeps increasing, no timeouts attributable to the new registers |
+| R5 | Trigger an alarm (e.g. open the door if the model allows) | `status_raw` changes even if the label stays, *Alarm code (exp.)* changes; note the values |

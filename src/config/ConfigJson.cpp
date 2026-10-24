@@ -7,7 +7,7 @@ namespace edk {
 
 namespace {
 
-enum class Kind : uint8_t { Str, U8, U16, Long, Bool };
+enum class Kind : uint8_t { Str, U8, U16, I16, Long, Bool };
 
 struct Field {
   const char *key;
@@ -37,6 +37,21 @@ const Field kFields[] = {
     EDK_FIELD("feat_relax", Bool, featRelax, false),
     EDK_FIELD("feat_standby", Bool, featStandby, false),
     EDK_FIELD("feat_chrono", Bool, featChrono, false),
+    EDK_FIELD("stove_profile", Str, stoveProfile, false),
+    EDK_FIELD("prof_min_temp_tenths", I16, profMinTempTenths, false),
+    EDK_FIELD("prof_max_temp_tenths", I16, profMaxTempTenths, false),
+    EDK_FIELD("prof_power_levels", U8, profPowerLevels, false),
+    EDK_FIELD("prof_fan_levels", U8, profFanLevels, false),
+    EDK_FIELD("prof_fan_auto", Bool, profFanAuto, false),
+    EDK_FIELD("prof_fan_count", U8, profFanCount, false),
+    EDK_FIELD("exp_registers", Bool, expRegisters, false),
+    EDK_FIELD("ext_enabled", Bool, extEnabled, false),
+    EDK_FIELD("ext_setpoint_tenths", I16, extSetpointTenths, false),
+    EDK_FIELD("ext_hysteresis_tenths", I16, extHysteresisTenths, false),
+    EDK_FIELD("ext_sensor_max_age_s", U16, extSensorMaxAgeS, false),
+    EDK_FIELD("ext_min_interval_s", U16, extMinIntervalS, false),
+    EDK_FIELD("ext_boost_tenths", I16, extBoostTenths, false),
+    EDK_FIELD("ext_relief_tenths", I16, extReliefTenths, false),
     EDK_FIELD("stove_mac", Str, stoveMac, false),
     EDK_FIELD("ble_enabled", Bool, bleEnabled, false),
     EDK_FIELD("ble_session_s", U16, bleSessionS, false),
@@ -125,6 +140,7 @@ bool applyField(const Field &f, JsonVariantConst v, AppConfig &cfg) {
   }
   case Kind::U8:
   case Kind::U16:
+  case Kind::I16:
   case Kind::Long: {
     bool ok;
     long n = numberOf(v, ok);
@@ -134,6 +150,8 @@ bool applyField(const Field &f, JsonVariantConst v, AppConfig &cfg) {
       *at<uint8_t>(cfg, f) = (uint8_t)(n < 0 ? 0 : n > 255 ? 255 : n);
     else if (f.kind == Kind::U16)
       *at<uint16_t>(cfg, f) = (uint16_t)(n < 0 ? 0 : n > 65535 ? 65535 : n);
+    else if (f.kind == Kind::I16)
+      *at<int16_t>(cfg, f) = (int16_t)(n < -32768 ? -32768 : n > 32767 ? 32767 : n);
     else
       *at<long>(cfg, f) = n;
     return true;
@@ -168,6 +186,9 @@ void configToJson(const AppConfig &cfg, JsonObject out, ConfigSecrets secrets) {
       break;
     case Kind::U16:
       out[f.key] = *at<uint16_t>(cfg, f);
+      break;
+    case Kind::I16:
+      out[f.key] = *at<int16_t>(cfg, f);
       break;
     case Kind::Long:
       out[f.key] = *at<long>(cfg, f);

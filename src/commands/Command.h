@@ -20,6 +20,13 @@ enum class CommandType : uint8_t {
   ReadStandby,
   ReadChrono,
   ReadWarningFlags,
+  // experimental reads (F09, enabled by exp_registers) and the generic
+  // diagnostic register read (user tool, function 3 only)
+  ReadAlarm,
+  ReadFan23,
+  ReadPelletRemaining,
+  ReadControllerVersion,
+  ReadRegister,
   // writes (sensitive, never auto-retried)
   SetOnOff,
   SetTargetTemp,

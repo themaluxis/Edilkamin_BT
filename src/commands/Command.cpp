@@ -26,6 +26,16 @@ const char *commandTypeName(CommandType t) {
     return "READ_CHRONO";
   case CommandType::ReadWarningFlags:
     return "READ_WARNING_FLAGS";
+  case CommandType::ReadAlarm:
+    return "READ_ALARM";
+  case CommandType::ReadFan23:
+    return "READ_FAN23";
+  case CommandType::ReadPelletRemaining:
+    return "READ_PELLET_REMAINING";
+  case CommandType::ReadControllerVersion:
+    return "READ_CONTROLLER_VERSION";
+  case CommandType::ReadRegister:
+    return "READ_REGISTER";
   case CommandType::SetOnOff:
     return "SET_ON_OFF";
   case CommandType::SetTargetTemp:
@@ -119,6 +129,16 @@ const char *commandEntity(CommandType t) {
     return "thermocouple_temperature";
   case CommandType::ReadWarningFlags:
     return "pellet_level";
+  case CommandType::ReadAlarm:
+    return "alarm";
+  case CommandType::ReadFan23:
+    return "fan23";
+  case CommandType::ReadPelletRemaining:
+    return "pellet_remaining";
+  case CommandType::ReadControllerVersion:
+    return "controller_version";
+  case CommandType::ReadRegister:
+    return "register_read";
   default:
     return "none";
   }

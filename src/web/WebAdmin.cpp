@@ -46,6 +46,7 @@ void WebAdmin::begin(AppConfig &cfg, ConfigStore &store, const Hooks &hooks,
   server_.on("/api/factory-reset", HTTP_POST, [this] { handleFactoryReset(); });
   server_.on("/api/wifi", HTTP_POST, [this] { handleWifi(); });
   server_.on("/api/wifi/scan", HTTP_GET, [this] { handleWifiScan(); });
+  server_.on("/api/register/read", HTTP_POST, [this] { handleRegisterRead(); });
   server_.on("/api/update/info", HTTP_GET, [this] { handleUpdateInfo(); });
   server_.on("/api/update", HTTP_POST, [this] { handleUpdateDone(); },
              [this] { handleUpdateUpload(); });
@@ -534,6 +535,34 @@ void WebAdmin::handleWifiScan() {
     return;
   }
   sendJson(200, g_buf);
+}
+
+void WebAdmin::handleRegisterRead() {
+  if (!authorize())
+    return;
+  JsonDocument doc;
+  if (!readBody(doc))
+    return;
+  const char *regText = doc["reg"] | "";
+  unsigned regv = 0;
+  if (sscanf(regText, "%x", &regv) != 1 || regv > 0xFFFF) {
+    sendError(400, "reg must be a hex register address, e.g. 0x02E6");
+    return;
+  }
+  int count = doc["count"] | 1;
+  if (count < 1 || count > 3) {
+    sendError(400, "count must be 1..3");
+    return;
+  }
+  char msg[96] = "";
+  if (!hooks_.readRegister ||
+      !hooks_.readRegister((uint16_t)regv, (uint8_t)count, msg, sizeof(msg), hooks_.ctx)) {
+    sendError(429, msg[0] ? msg : "register read unavailable");
+    return;
+  }
+  char json[96];
+  snprintf(json, sizeof(json), "{\"ok\":true,\"id\":\"0x%04X\",\"count\":%d}", regv, count);
+  sendJson(200, json);
 }
 
 // ---------------------------------------------------------------------------

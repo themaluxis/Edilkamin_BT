@@ -7,13 +7,24 @@
 
 ## Capability profile
 
-`src/stove/StoveProfile.h` holds the single *generic* profile used today:
-target 15.0–30.0 °C in 0.5 steps, power P1–P5, fan 20–100 % + Auto; fan 2/3
-and AirKare not exposed. Relax, standby and chrono can be switched off per
-module (`feat_relax`, `feat_standby`, `feat_chrono`, web page → *Stove
-features*): the Home Assistant entity is removed and the command refused, so
-a stove without the function never shows a dead switch. Per-model profiles
-(F08) will extend this to ranges and the extra fans.
+Two profiles exist (`stove_profile`, web page → *Stove profile*):
+
+* **generic** – the validated Slide2-like capabilities: target 15.0–30.0 °C
+  in 0.5 steps, power P1–P5, fan 20–100 % + Auto, one fan.
+* **custom** – every capability from the configuration: setpoint range,
+  number of power and fan levels, fan auto mode, number of fans (1–3).
+
+Relax, standby and chrono can be switched off per module (`feat_relax`,
+`feat_standby`, `feat_chrono`): the Home Assistant entity is removed and the
+command refused, so a stove without the function never shows a dead switch.
+The climate card, the *Power* select, the external thermostat limits and the
+command validation all follow the effective profile; changes apply live.
+
+To contribute a named profile for your model: run with `custom` values until
+they match the stove, enable *Experimental registers* and the register tool
+to confirm fans 2/3 and the alarm register ([the-mind-registers.md](the-mind-registers.md)),
+then open an issue with the model name and the values; the preset is a
+one-line addition in `src/stove/StoveProfiles.cpp`.
 
 ## Register notes (validated on the Slide2)
 
