@@ -15,6 +15,8 @@ void MqttManager::begin(Client &net, const char *server, uint16_t port,
                         const char *clientId, const char *willTopic) {
   instance_ = this;
   copyStr(server_, sizeof(server_), server);
+  if (!server_[0])
+    EDK_LOGW(kTag, "MQTT disabled: server not configured (set it in web settings and restart)");
   port_ = port;
   copyStr(user_, sizeof(user_), user);
   copyStr(pass_, sizeof(pass_), pass);
@@ -130,6 +132,8 @@ void MqttManager::afterConnect() {
 }
 
 void MqttManager::loop(uint32_t now, bool networkUp) {
+  if (!server_[0])
+    return;
   if (client_.connected()) {
     wasConnected_ = true;
     client_.loop();

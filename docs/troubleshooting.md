@@ -75,6 +75,21 @@ that the stove will accept a connection or that its BLE signal is reliable.
 
 ## Web page problems
 
+### Configuration cannot be saved / MQTT host is empty
+
+`CFG: cannot write /config.json.tmp` means the configuration could not be
+written to LittleFS. If mounting failed at startup, saved settings cannot
+be loaded either. The current partition table names this partition `littlefs`,
+while Arduino-ESP32's default mount label is `spiffs`. The firmware explicitly
+selects `littlefs` when present and supports older tables named `spiffs`.
+Check for `LittleFS mounted (...)` at startup after installing the fix.
+This correction does not require erasing flash or changing the partition table.
+
+`MQTT: connecting to :1883` means the broker address is empty. Once saving
+works, set the broker address and credentials in the web settings and restart.
+The corrected firmware skips MQTT connection attempts until a server is set.
+If settings were never saved successfully, enter them again.
+
 | Symptom | Cause / fix |
 |---------|-------------|
 | `edilkaminble.local` does not resolve | mDNS is blocked on some networks or Windows setups; use the IP from the router or from the *Wi-Fi signal* device page in Home Assistant (`diagnostics/state` → `ip`) |

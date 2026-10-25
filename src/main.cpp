@@ -12,6 +12,7 @@
 #include <WiFiManager.h>
 #include <esp_arduino_version.h>
 #include <esp_ota_ops.h>
+#include <esp_partition.h>
 #include <esp_system.h>
 #include <time.h>
 
@@ -1061,6 +1062,22 @@ static void onMqttConnected(void *) {
 // ---------------------------------------------------------------------------
 // Setup helpers
 // ---------------------------------------------------------------------------
+static bool mountConfigFs() {
+  // Arduino-ESP32 defaults to "spiffs", whereas our OTA table uses "littlefs".
+  // Select by the installed table so older USB partition layouts still work.
+  const char *label = esp_partition_find_first(
+                          ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS,
+                          "littlefs")
+                          ? "littlefs" : "spiffs";
+  if (!LittleFS.begin(true, "/littlefs", 10, label)) {
+    EDK_LOGE(kTag, "LittleFS mount failed (partition %s)", label);
+    return false;
+  }
+  EDK_LOGI(kTag, "LittleFS mounted (%s, %u/%u bytes used)", label,
+           (unsigned)LittleFS.usedBytes(), (unsigned)LittleFS.totalBytes());
+  return true;
+}
+
 // Erases configuration, Wi-Fi credentials and persisted counters, then
 // restarts into the setup access point. Used by the boot button and the web UI.
 static void factoryReset(const char *origin) {
@@ -1069,7 +1086,7 @@ static void factoryReset(const char *origin) {
   if (mqtt.connected())
     mqtt.publish(topics.make(topicBuf, sizeof(topicBuf), "availability/state"),
                  "OFFLINE", true, true);
-  if (LittleFS.begin(true)) {
+  if (mountConfigFs()) {
     store.remove();
     LittleFS.end();
   }
@@ -1096,7 +1113,7 @@ static void factoryResetIfRequested() {
 }
 
 static void loadConfig() {
-  if (!LittleFS.begin(true)) {
+  if (!mountConfigFs()) {
     EDK_LOGE(kTag, "LittleFS mount failed, using defaults");
     return;
   }
